@@ -63,6 +63,7 @@ class MinimizerParameters:
 
         self._values = np.zeros(self._number_of_params)
         self._errors = np.zeros(self._number_of_params)
+        self._minos_errors = np.zeros(self._number_of_params)
         self._covariance = np.zeros((self._number_of_params, self._number_of_params))
         self._correlation = np.zeros((self._number_of_params, self._number_of_params))
 
@@ -509,6 +510,31 @@ class IMinuitMinimizer(AbstractMinimizer):
             param_types=param_types,
         )
 
+        self.minuit_obj = None  # type: Minuit
+
+    def _create_minuit_obj(
+        self,
+        initial_param_values: np.ndarray,
+        verbose: bool = False,
+        error_def: float = 0.5,
+    ):
+
+        self.minuit_obj = Minuit(
+            self._fcn,
+            initial_param_values,
+            name=self.params.names,
+        )
+
+        self.minuit_obj.strategy = 2
+        self.minuit_obj.errors = 0.05 * initial_param_values
+        self.minuit_obj.errordef = error_def
+        self.minuit_obj.limits = self._param_bounds
+
+        for i in range(len(self.minuit_obj.params)):
+            self.minuit_obj.fixed[i] = self._get_fixed_params()[i]
+
+        self.minuit_obj.print_level = 1 if verbose else 0
+
     def minimize(
         self,
         initial_param_values: np.ndarray,
@@ -519,33 +545,38 @@ class IMinuitMinimizer(AbstractMinimizer):
         check_success: bool = True,
     ) -> MinimizeResult:
 
-        m = Minuit(
-            self._fcn,
-            initial_param_values,
-            name=self.params.names,
-        )
-
-        m.errors = 0.05 * initial_param_values
-        m.errordef = error_def
-        m.limits = self._param_bounds
-
-        for i in range(len(m.params)):
-            m.fixed[i] = self._get_fixed_params()[i]
-
-        m.print_level = 1 if verbose else 0
+        if self.minuit_obj is None:
+            self._create_minuit_obj(initial_param_values=initial_param_values, verbose=verbose, error_def=error_def)
+        minos_errors = False
+        m = self.minuit_obj  # type: Minuit
 
         # perform minimization twice!
         fmin = m.migrad(ncall=100000, iterate=2).fmin
+
+        if not fmin.has_accurate_covar:
+            logging.warning("Minimum has inaccurate covariance, trying again with more iterations.")
+            fmin = m.migrad(ncall=500000, iterate=5).fmin
+            m.hesse()
+
+        if not fmin.has_accurate_covar:
+            logging.warning("Covariance is still inaccurate.")
+            logging.info("Trying minos.")
+            m.minos()
+            if not all([minoserror.is_valid for minoserror in m.merrors.values()]):
+                raise RuntimeError("Invalid minos errors.")
+            self._params.errors = [max(abs(merr.upper), abs(merr.lower)) for merr in m.merrors.values()]
+            minos_errors = True
 
         self._fcn_min_val = m.fval
         self._params.values = np.array(m.values)
         self._params.errors = np.array(m.errors)
 
         fixed_params = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
-        self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
-        self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
+        if not minos_errors:
+            self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
+            self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
 
-        self._success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance
+        self._success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
 
         if check_success and not self._success:
             raise RuntimeError(f"Minimization was not successful.\n" f"{fmin}\n")

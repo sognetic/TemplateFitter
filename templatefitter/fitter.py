@@ -94,7 +94,7 @@ class TemplateFitter:
         MinimizeResult : namedtuple
             A namedtuple with the most important information about the minimization.
         """
-        minimizer = minimizer_factory(
+        self.minimizer = minimizer_factory(
             minimizer_id=self._minimizer_id,
             fcn=self._nll_creator(fix_nuisance_parameters=fix_nui_params),
             names=self._nll.param_names,
@@ -103,19 +103,19 @@ class TemplateFitter:
 
         if fix_nui_params:
             for param_id in self._fit_model.floating_nuisance_parameter_indices:
-                minimizer.set_param_fixed(param_id=param_id)
+                self.minimizer.set_param_fixed(param_id=param_id)
 
         if parameters_to_fix is not None:
             for param_to_fix in parameters_to_fix:
-                minimizer.set_param_fixed(param_id=param_to_fix)
+                self.minimizer.set_param_fixed(param_id=param_to_fix)
 
         for param_id_or_str in self._fixed_parameters:
-            minimizer.set_param_fixed(param_id=param_id_or_str)
+            self.minimizer.set_param_fixed(param_id=param_id_or_str)
 
         for param_id_or_str, bounds in self._bound_parameters.items():
-            minimizer.set_param_bounds(param_id=param_id_or_str, bounds=bounds)
+            self.minimizer.set_param_bounds(param_id=param_id_or_str, bounds=bounds)
 
-        fit_result = minimizer.minimize(
+        fit_result = self.minimizer.minimize(
             initial_param_values=self._nll.x0,
             verbose=verbose,
             get_hesse=get_hesse,
