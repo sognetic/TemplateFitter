@@ -396,6 +396,8 @@ class AbstractMinimizer(ABC):
         self._status = None  # type: Optional[str]
         self._message = None  # type: Optional[str]
 
+        self.additional_attributes = {}  # type: Dict[str, Any]
+
     @abstractmethod
     def minimize(
         self,
@@ -512,6 +514,8 @@ class IMinuitMinimizer(AbstractMinimizer):
 
         self.minuit_obj = None  # type: Minuit
 
+        self.additional_attributes = {"minos": True}
+
     def _create_minuit_obj(
         self,
         initial_param_values: np.ndarray,
@@ -560,12 +564,13 @@ class IMinuitMinimizer(AbstractMinimizer):
 
         if not fmin.has_accurate_covar:
             logging.warning("Covariance is still inaccurate.")
-            logging.info("Trying minos.")
-            m.minos()
-            if not all([minoserror.is_valid for minoserror in m.merrors.values()]):
-                raise RuntimeError("Invalid minos errors.")
-            self._params.errors = [max(abs(merr.upper), abs(merr.lower)) for merr in m.merrors.values()]
-            minos_errors = True
+            if self.additional_attributes.get("minos"):
+                logging.warning("Using minos to still get valid errors.")
+                m.minos()
+                if not all([minoserror.is_valid for minoserror in m.merrors.values()]):
+                    raise RuntimeError("Invalid minos errors.")
+                self._params.errors = [max(abs(merr.upper), abs(merr.lower)) for merr in m.merrors.values()]
+                minos_errors = True
 
         self._fcn_min_val = m.fval
         self._params.values = np.array(m.values)
@@ -576,7 +581,9 @@ class IMinuitMinimizer(AbstractMinimizer):
             self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
             self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
 
-        self._success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
+        accurate_errors = fmin.has_accurate_covar or minos_errors
+
+        self._success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and accurate_errors
 
         if check_success and not self._success:
             raise RuntimeError(f"Minimization was not successful.\n" f"{fmin}\n")

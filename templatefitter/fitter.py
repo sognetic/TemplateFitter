@@ -369,6 +369,8 @@ class TemplateFitter:
             param_types=self._nll.param_types,
         )
 
+        minimizer.additional_attributes["minos"] = False  # Disable minos as uncertainties not needed for significance
+
         if fix_nui_params:
             for param_id in self._fit_model.floating_nuisance_parameter_indices:
                 minimizer.set_param_fixed(param_id=param_id)
@@ -394,6 +396,7 @@ class TemplateFitter:
             names=self._nll.param_names,
             param_types=self._nll.param_types,
         )
+        minimizer_bkg.additional_attributes["minos"] = False  # Disable minos as uncertainties not needed here
 
         if fix_nui_params:
             for param_id in self._fit_model.floating_nuisance_parameter_indices:
