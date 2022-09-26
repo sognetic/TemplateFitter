@@ -45,7 +45,7 @@ class HistVariable:
         self._scope = scope  # type: Optional[Tuple[float, float]]
 
         self._var_name = "" if var_name is None else var_name  # type: str
-        self._x_label = self._var_name if unit is None else self._var_name + f" in {unit}"  # type: str
+        self._x_label = self._var_name if unit is None else self._var_name + f" [{unit}]"  # type: str
 
         self._unit = unit  # type: Optional[str]
         self._use_log_scale = use_log_scale  # type: bool

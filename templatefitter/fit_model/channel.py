@@ -249,9 +249,8 @@ class Channel(Sequence):
                 list(template_map.keys()),
                 template_names,
             )
-            assert all(t in template_names for t in self._plot_order), [
-                t for t in self._plot_order if t not in template_names
-            ]
+            assert all(t in template_names for t in self._plot_order), (template_names, self._plot_order)
+            
             return tuple(template_map[tn] for tn in self._plot_order)
 
     @property

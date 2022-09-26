@@ -19,8 +19,8 @@ __all__ = [
 # The following dictionaries define variables which can be given
 # as arguments to matplotlib"s set_x/y_label functions in order to
 # align the axis-label text to the end of the axes.
-xlabel_pos = OrderedDict([("x", 1), ("ha", "right")])
-ylabel_pos = OrderedDict([("y", 1), ("ha", "right")])
+xlabel_pos = OrderedDict([("x", 1), ("ha", "center")])
+ylabel_pos = OrderedDict([("y", 1), ("ha", "center")])
 
 
 class KITColors:
