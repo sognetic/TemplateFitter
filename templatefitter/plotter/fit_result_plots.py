@@ -96,7 +96,6 @@ class FitResultPlot(FitPlotBase):
 
         bin_scaling = self.binning.get_bin_scaling()  # type: np.ndarray
 
-
         data_bin_count = self._histograms[self.data_key].get_bin_count_of_component(index=0)
         data_bin_errors_sq = self._histograms[self.data_key].get_histogram_squared_bin_errors_of_component(index=0)
 
@@ -104,11 +103,15 @@ class FitResultPlot(FitPlotBase):
         # clean_mc_bin_counts = [np.where(bc < 0., 0., bc) for bc in mc_bin_counts]
 
         mc_sum_bin_count = np.sum(np.array(mc_bin_counts), axis=0)
+        neg_hist_index = [i for i, mcbc in enumerate(mc_bin_counts) if any(mcbc < 0)]
+        print(f"Neg. hist index: {neg_hist_index}.")
+        mc_pos_sum_bin_count = np.sum(
+            np.array([mc_bin_counts[i] for i in range(len(mc_bin_counts)) if i not in neg_hist_index]), axis=0
+        )
 
-        neg_hist_index  = [i for i, mcbc in enumerate(mc_bin_counts) if any(mcbc < 0)] 
         mc_sum_bin_error_sq = self._histograms[self.mc_key].get_statistical_uncertainty_per_bin()
 
-        bar_bottom = mc_sum_bin_count - np.sqrt(mc_sum_bin_error_sq)
+        bar_bottom = mc_pos_sum_bin_count - np.sqrt(mc_sum_bin_error_sq)
         height_corr = np.where(bar_bottom < 0.0, bar_bottom, 0.0)
         bar_bottom[bar_bottom < 0.0] = 0.0
         bar_height = 2 * np.sqrt(mc_sum_bin_error_sq) - height_corr
@@ -117,7 +120,10 @@ class FitResultPlot(FitPlotBase):
             n, b, p = ax1.hist(
                 x=[self.bin_mids for _ in range(self._histograms[self.mc_key].number_of_components)],
                 bins=self.bin_edges,
-                weights=mc_bin_counts,
+                weights=[
+                    mc_bin_counts[i] if i not in neg_hist_index else np.array([0] * len(mc_bin_counts[i]))
+                    for i in range(len(mc_bin_counts))
+                ],
                 stacked=True,
                 edgecolor="black",
                 lw=0.3,
@@ -136,7 +142,7 @@ class FitResultPlot(FitPlotBase):
                     edgecolor="black",
                     lw=0.3,
                     color=ncolors,
-    #                label=[self._histograms[self.mc_key].labels[i] for i in neg_hist_index],  # type: ignore  # The type here is correct!
+                    #                label=[self._histograms[self.mc_key].labels[i] for i in neg_hist_index],  # type: ignore  # The type here is correct!
                     histtype="stepfilled",
                 )
                 print("N:")
@@ -169,8 +175,7 @@ class FitResultPlot(FitPlotBase):
         ax1.errorbar(
             x=self.bin_mids,
             y=data_bin_count * bin_scaling,
-            yerr=np.array((np.sqrt(data_bin_errors_sq + 0.25) - 0.5,
-                           np.sqrt(data_bin_errors_sq + 0.25) + 0.5)),
+            yerr=np.array((np.sqrt(data_bin_errors_sq + 0.25) - 0.5, np.sqrt(data_bin_errors_sq + 0.25) + 0.5)),
             xerr=self.bin_widths / 2 if markers_with_width else None,
             ls="",
             marker=".",
@@ -179,10 +184,7 @@ class FitResultPlot(FitPlotBase):
         )
 
         if ax2:
-            ax2.axhline(
-                y=0,
-                xmin=0, xmax=1,
-                color='#555753')
+            ax2.axhline(y=0, xmin=0, xmax=1, color="#555753")
             data_w_uncert = unumpy.uarray(data_bin_count, np.sqrt(data_bin_errors_sq))
             mc_w_uncert = unumpy.uarray(mc_sum_bin_count, np.sqrt(mc_sum_bin_error_sq))
             diff = data_w_uncert - mc_w_uncert
@@ -193,11 +195,12 @@ class FitResultPlot(FitPlotBase):
                 x=self.bin_mids,
                 y=unumpy.nominal_values(pull),
                 yerr=unumpy.std_devs(pull),
-                color='black',
+                color="black",
                 lw=0,
                 elinewidth=1,
                 capsize=0,
-                fmt='.')
+                fmt=".",
+            )
 
         if draw_legend:
             if style == "stacked":
@@ -206,7 +209,7 @@ class FitResultPlot(FitPlotBase):
                     inside=legend_inside,
                     loc=legend_loc,
                     ncols=legend_cols,
-                    #font_size="smaller",
+                    # font_size="smaller",
                     font_size=15,
                     y_axis_scale=y_scale,
                 )
@@ -219,17 +222,13 @@ class FitResultPlot(FitPlotBase):
                     y_axis_scale=y_scale,
                 )
 
-        ax1.axhline(
-            y=0,
-            xmin=0, xmax=1,
-            color=plot_style.KITColors.grey,
-            linestyle='--')
+        ax1.axhline(y=0, xmin=0, xmax=1, color=plot_style.KITColors.grey, linestyle="--")
 
-        plt.rc('xtick', labelsize=15)    # fontsize of the tick labels
-        plt.rc('ytick', labelsize=15)    # fontsize of the tick labels
+        plt.rc("xtick", labelsize=15)  # fontsize of the tick labels
+        plt.rc("ytick", labelsize=15)  # fontsize of the tick labels
 
-        ax1.set_ylabel(self._get_y_label(normed=False), labelpad=6, loc='center', fontsize=18)
-        ax1.set_xlabel(self._variable.x_label, labelpad=6, loc='center', fontsize=18)
+        ax1.set_ylabel(self._get_y_label(normed=False), labelpad=6, loc="center", fontsize=18)
+        ax1.set_xlabel(self._variable.x_label, labelpad=6, loc="center", fontsize=18)
 
         ax1.set_xlim(self.bin_edges[0], self.bin_edges[-1])
         ax2.set_xlim(self.bin_edges[0], self.bin_edges[-1])
@@ -355,12 +354,14 @@ class FitResultPlotter(FitPlotterBase):
                     color=self._get_data_color(),
                 )
 
-                fig, ax_container = plt.subplots(nrows=2,
-                                        ncols=1,
-                                        figsize=self._fig_size,
-                                        dpi=200,
-                                        sharex=True,
-                                        gridspec_kw={'height_ratios': [3.5, 1]})
+                fig, ax_container = plt.subplots(
+                    nrows=2,
+                    ncols=1,
+                    figsize=self._fig_size,
+                    dpi=200,
+                    sharex=True,
+                    gridspec_kw={"height_ratios": [3.5, 1]},
+                )
                 axs, ratioax = ax_container
 
                 current_plot.plot_on(
@@ -475,12 +476,9 @@ class FitResultPlotter(FitPlotterBase):
                 color=self._get_data_color(),
             )
 
-            fig, ax_container = plt.subplots(nrows=2,
-                                             ncols=1,
-                                             figsize=self._fig_size,
-                                             dpi=200,
-                                             sharex=True,
-                                             gridspec_kw={'height_ratios': [3.5, 1]})
+            fig, ax_container = plt.subplots(
+                nrows=2, ncols=1, figsize=self._fig_size, dpi=200, sharex=True, gridspec_kw={"height_ratios": [3.5, 1]}
+            )
             axs, ratioax = ax_container
 
             plot.plot_on(
@@ -488,18 +486,17 @@ class FitResultPlotter(FitPlotterBase):
                 ax2=ratioax,
                 #  style=???,  # str = "stacked",  # TODO: Include summed style
                 #  include_sys=???,  # bool = False,
-                markers_with_width=False, # bool = True,
+                markers_with_width=False,  # bool = True,
                 #  sum_color=???,  # str = plot_style.KITColors.kit_purple,
                 #  draw_legend=???,  # bool = True,
                 #  legend_inside=???,  # bool = True,
                 #  legend_cols=???,  # Optional[int] = None,
-                legend_loc='upper left',  # Optional[Union[int, str]] = None,
+                legend_loc="upper left",  # Optional[Union[int, str]] = None,
                 #  y_scale=???,  # float = 1.1
             )
 
-            axs.set_title(r"$\int \mathcal{L} \,dt=189.9\,\mathrm{fb}^{-1}$", loc='right')
-            axs.set_title("Belle II Preliminary", loc='left', 
-                          fontdict={'size': 12, 'style': 'normal', 'weight': 'bold'})
+            axs.set_title(r"$\int \mathcal{L} \,dt=189.9\,\mathrm{fb}^{-1}$", loc="right")
+            axs.set_title("Belle II Preliminary", loc="left", fontdict={"size": 12, "style": "normal", "weight": "bold"})
 
             y_ax_scalefactor = 1.65
             xmin, xmax, ymin, ymax = axs.axis()
