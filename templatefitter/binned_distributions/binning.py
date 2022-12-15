@@ -6,6 +6,8 @@ import logging
 import numpy as np
 from typing import Union, Optional, Tuple, List
 
+from itertools import product
+
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
 __all__ = [
@@ -383,3 +385,7 @@ class Binning:
                 f"but this instance has {self.dimensions} dimensions!"
             )
         return self.get_bin_scaling_for_dim(dimension=0)
+
+    def get_flat_list_of_bins(self) -> List[Tuple[float, ...]]:
+
+        return list(product(*(tuple(range(x)) for x in self.num_bins)))

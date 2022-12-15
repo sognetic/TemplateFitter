@@ -6,7 +6,11 @@ import logging
 import numpy as np
 
 from matplotlib import pyplot as plt
+import matplotlib.ticker as mticker
+
 from typing import Optional, Union, Tuple, List, Dict, Type
+
+from dataclasses import dataclass
 
 from templatefitter.utility import PathType
 from templatefitter.binned_distributions.binning import Binning
@@ -16,6 +20,8 @@ from templatefitter.plotter import plot_style
 from templatefitter.plotter.plot_utilities import export, AxesType
 from templatefitter.plotter.histogram_variable import HistVariable
 from templatefitter.plotter.fit_plots_base import FitPlotBase, FitPlotterBase
+
+from templatefitter.minimizer import MinimizeResult
 
 from templatefitter.fit_model.model_builder import FitModel
 
@@ -88,7 +94,7 @@ class FitResultPlot(FitPlotBase):
         legend_cols: Optional[int] = None,
         legend_loc: Optional[Union[int, str]] = None,
         y_scale: float = 1.1,
-    ) -> None:
+    ) -> None:  # type: ignore[override]
         self._check_required_histograms()
 
         bin_scaling = self.binning.get_bin_scaling()  # type: np.ndarray
@@ -441,6 +447,206 @@ class FitResultPlotter(FitPlotterBase):
                 if use_initial_values:
                     add_info = "_with_initial_values"
                 filename = f"fit_result_plot_{output_name_tag}_{mc_channel.name}_dim_{project_to}_projection{add_info}"
+
+                export(fig=fig, filename=filename, target_dir=output_dir_path, close_figure=True)
+                output_lists["pdf"].append(os.path.join(output_dir_path, f"{filename}.pdf"))
+                output_lists["png"].append(os.path.join(output_dir_path, f"{filename}.png"))
+
+        return output_lists
+
+
+@dataclass
+class NuisanceResultPerTemplate:
+
+    label: str
+    bin_counts: np.ndarray
+    bin_errors: np.ndarray
+    color: str
+
+    def __post_init__(self):
+
+        if len(self.bin_counts) != len(self.bin_errors):
+            raise TypeError(
+                f"Bin counts (length {len(self.bin_counts)}) "
+                f"and errors (length {len(self.bin_errors)}) must have the same length."
+            )
+
+
+class BinNuisancePullPlot:
+    def __init__(
+        self,
+        binning: Binning,
+    ) -> None:
+
+        self.binning = binning
+        self.nui_params_per_component = []  # type: List[NuisanceResultPerTemplate]
+
+    def add_component(
+        self,
+        label: str,
+        bin_counts: np.ndarray,
+        bin_errors: np.ndarray,
+        color: str,
+    ) -> None:
+
+        if len(bin_counts) != self.binning.num_bins_total:
+            raise TypeError(
+                "Added component is incompatible with binning in this plot:"
+                f"There are {self.binning.num_bins_total} bins in the binning but {len(bin_counts)}"
+                "values in the component."
+            )
+
+        self.nui_params_per_component.append(
+            NuisanceResultPerTemplate(label=label, bin_counts=bin_counts, bin_errors=bin_errors, color=color)
+        )
+
+    def plot_on(
+        self,
+        ax: Optional[AxesType] = None,
+    ) -> AxesType:
+        if ax is None:
+            _, ax = plt.subplots()
+
+        labels = [f"bin {i}" if len(i) > 1 else f"bin {i[0]}" for i in self.binning.get_flat_list_of_bins()]
+        total_number_of_pulls = len(labels) * len(self.nui_params_per_component)
+        end_of_plot = total_number_of_pulls - 0.5
+
+        # set up axes labeling, ranges, etc...
+        ax.xaxis.set_major_locator(mticker.FixedLocator(np.arange(len(labels)).tolist()))
+        ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=20)
+        ax.set_xlim(-0.5, end_of_plot)
+        ax.set_ylim(-3, 3)
+
+        if len(self.nui_params_per_component) == 1:
+            ax.set_title(f"Pull Plot for '{self.nui_params_per_component[0].label}' Template", fontsize=18)
+        else:
+            ax.set_title("Pull Plot for multiple Templates", fontsize=18)
+
+        ax.set_ylabel(r"$(\theta - \hat{\theta})\,/ \Delta \theta$", fontsize=20)
+        ax.tick_params(axis="both", which="major", labelsize=20)
+        ax.tick_params(axis="both", which="minor", labelsize=20)
+
+        # draw the horizontal lines and bands
+        ax.hlines([-2, 2], -0.5, end_of_plot, colors="black", linestyles="dotted")
+        ax.hlines([-1, 1], -0.5, end_of_plot, colors="black", linestyles="dashdot")
+        ax.fill_between([-0.5, end_of_plot], [-2, -2], [2, 2], facecolor="yellow")
+        ax.fill_between([-0.5, end_of_plot], [-1, -1], [1, 1], facecolor="green")
+        ax.hlines([0], -0.5, end_of_plot, colors="black", linestyles="dashed")
+
+        for component_no, nui_param_set in enumerate(self.nui_params_per_component):
+            left_edge_track = component_no * self.binning.num_bins_total
+            ax.errorbar(
+                x=range(left_edge_track, left_edge_track + self.binning.num_bins_total),
+                y=nui_param_set.bin_counts,
+                yerr=nui_param_set.bin_errors,
+                marker="o",
+                color=nui_param_set.color,
+                ls="none",
+            )
+
+
+class BinNuisancePullPlotter:
+    def __init__(
+        self,
+        fit_model: FitModel,
+        minimize_result: MinimizeResult,
+        plot_size: Tuple[float, float] = (15, 5),
+        total_fig_size: Optional[Tuple[float, float]] = None,
+    ) -> None:
+
+        self._plotter_class = BinNuisancePullPlot
+        self._fit_model = fit_model
+        self.minimize_result = minimize_result
+        self._plot_size = plot_size
+
+        if (total_fig_size is not None) and (plot_size is not None):
+            logging.warning(
+                "Both the plot_size and total_fig_size arguments are passed (which might conflict)."
+                "Scaling to the size given by the plot_size argument."
+            )
+        else:
+            self._fig_size = total_fig_size
+
+    def _get_fig_size(self, number_of_templates: int, separate_plots_for_components: bool) -> Tuple[float, float]:
+
+        if self._fig_size is not None:
+            return self._fig_size
+
+        elif self._plot_size is not None:
+            if separate_plots_for_components:
+                return (self._plot_size[0], self._plot_size[1] * number_of_templates)
+            else:
+                return self._plot_size
+
+    def _convert_fitter_representation_to_model_representation(self, fitter_repr):
+
+        float_mask = self._fit_model._params.floating_parameter_mask
+        zeros = np.zeros_like(float_mask, dtype=float)
+        zeros[float_mask] = fitter_repr
+
+        return zeros
+
+    def plot_bin_nuisance_parameter(
+        self,
+        use_initial_values: bool = False,
+        output_dir_path: Optional[PathType] = None,
+        output_name_tag: Optional[str] = None,
+        separate_plots_for_components: bool = False,
+    ):
+
+        output_lists = {
+            "pdf": [],
+            "png": [],
+        }  # type: Dict[str, List[PathType]]
+
+        if (output_dir_path is None) != (output_name_tag is None):
+            raise ValueError(
+                "Parameter 'output_name_tag' and 'output_dir_path' must either both be provided or both set to None!"
+            )
+
+        bin_errors = self._convert_fitter_representation_to_model_representation(self.minimize_result.params.errors)
+
+        for mc_channel in self._fit_model.mc_channels_to_plot:
+
+            fig_size = self._get_fig_size(mc_channel.total_number_of_templates, separate_plots_for_components)
+
+            if not separate_plots_for_components:
+
+                fig, ax = plt.subplots(nrows=1, ncols=1, figsize=fig_size, dpi=200)
+                plot = self._plotter_class(binning=mc_channel.binning)
+
+                for template in mc_channel.templates_in_plot_order:
+
+                    plot.add_component(
+                        label=template.latex_label,
+                        bin_counts=[i.value for i in template.bin_nuisance_parameters],
+                        bin_errors=bin_errors[template.bin_nuisance_parameter_indices],
+                        color=template.color,
+                    )
+
+                plot.plot_on(ax=ax)
+
+            else:
+
+                fig, axs = plt.subplots(nrows=mc_channel.total_number_of_templates, ncols=1, figsize=fig_size)
+
+                for ax, template in zip(axs, mc_channel.templates_in_plot_order):
+                    plot = self._plotter_class(binning=mc_channel.binning)
+                    plot.add_component(
+                        label=template.latex_label,
+                        bin_counts=[i.value for i in template.bin_nuisance_parameters],
+                        bin_errors=bin_errors[template.bin_nuisance_parameter_indices],
+                        color=template.color,
+                    )
+                    plot.plot_on(ax=ax)
+
+            if output_dir_path is not None:
+                assert output_name_tag is not None
+
+                if use_initial_values:
+                    filename = f"fit_result_plot_{output_name_tag}_{mc_channel.name}_with_initial_values"
+                else:
+                    filename = f"fit_result_plot_{output_name_tag}_{mc_channel.name}"
 
                 export(fig=fig, filename=filename, target_dir=output_dir_path, close_figure=True)
                 output_lists["pdf"].append(os.path.join(output_dir_path, f"{filename}.pdf"))
