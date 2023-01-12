@@ -644,9 +644,9 @@ class BinNuisancePullPlotter:
                 assert output_name_tag is not None
 
                 if use_initial_values:
-                    filename = f"fit_result_plot_{output_name_tag}_{mc_channel.name}_with_initial_values"
+                    filename = f"bin_nuisance_plot_{output_name_tag}_{mc_channel.name}_with_initial_values"
                 else:
-                    filename = f"fit_result_plot_{output_name_tag}_{mc_channel.name}"
+                    filename = f"bin_nuisance_plot_{output_name_tag}_{mc_channel.name}"
 
                 export(fig=fig, filename=filename, target_dir=output_dir_path, close_figure=True)
                 output_lists["pdf"].append(os.path.join(output_dir_path, f"{filename}.pdf"))
