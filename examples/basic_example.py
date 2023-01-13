@@ -20,7 +20,7 @@ from templatefitter.minimizer import MinimizeResult
 
 from templatefitter.plotter.plot_style import KITColors
 from templatefitter.plotter.histogram_variable import HistVariable
-from templatefitter.plotter.fit_result_plots import FitResultPlotter
+from templatefitter.plotter.fit_result_plots import FitResultPlotter, BinNuisancePullPlotter
 
 
 def gen_sig(size: int, voi: str, voi_limits: Tuple[float, float]) -> pd.DataFrame:
@@ -139,6 +139,12 @@ def run_basic_example() -> Tuple[MinimizeResult, Dict[str, float]]:
 
     # Now let's plot the fit results
     fit_result_plotter_m2.plot_fit_result(output_dir_path=output_folder, output_name_tag="")
+
+    # We can now also do a plot of the bin nuisance parameter pulls
+    pull_plotter = BinNuisancePullPlotter(fit_model=model, minimize_result=result)
+    pull_plotter.plot_bin_nuisance_parameter(output_dir_path=output_folder, 
+                                             output_name_tag="",
+                                             separate_plots_for_components=True)
 
     # Lastly, we can have a look at the significance of the signal + background hypothesis
     # vs. the background only hypothesis.
