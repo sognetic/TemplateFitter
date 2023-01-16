@@ -20,6 +20,7 @@ from templatefitter.plotter import plot_style
 from templatefitter.plotter.plot_utilities import export, AxesType
 from templatefitter.plotter.histogram_variable import HistVariable
 from templatefitter.plotter.fit_plots_base import FitPlotBase, FitPlotterBase
+from templatefitter.plotter.plot_utilities import add_hierarchical_axes_to_plot
 
 from templatefitter.minimizer import MinimizeResult
 
@@ -507,13 +508,10 @@ class BinNuisancePullPlot:
         if ax is None:
             _, ax = plt.subplots()
 
-        labels = [f"bin {i}" if len(i) > 1 else f"bin {i[0]}" for i in self.binning.get_flat_list_of_bins()]
-        total_number_of_pulls = len(labels) * len(self.nui_params_per_component)
+        total_number_of_pulls = self.binning.num_bins_total * len(self.nui_params_per_component)
         end_of_plot = total_number_of_pulls - 0.5
 
         # set up axes labeling, ranges, etc...
-        ax.xaxis.set_major_locator(mticker.FixedLocator(np.arange(len(labels)).tolist()))
-        ax.set_xticklabels(labels, rotation=30, ha="right", fontsize=20)
         ax.set_xlim(-0.5, end_of_plot)
         ax.set_ylim(-3, 3)
 
@@ -534,15 +532,17 @@ class BinNuisancePullPlot:
         ax.hlines([0], -0.5, end_of_plot, colors="black", linestyles="dashed")
 
         for component_no, nui_param_set in enumerate(self.nui_params_per_component):
-            left_edge_track = component_no * self.binning.num_bins_total
+            left_edge_track = component_no * self.binning.num_bins_total + 0.5
             ax.errorbar(
-                x=range(left_edge_track, left_edge_track + self.binning.num_bins_total),
+                x=np.array([range(left_edge_track, left_edge_track + self.binning.num_bins_total)]) + 0.5,
                 y=nui_param_set.bin_counts,
                 yerr=nui_param_set.bin_errors,
                 marker="o",
                 color=nui_param_set.color,
                 ls="none",
             )
+
+        add_hierarchical_axes_to_plot(ax, self.binning)
 
 
 class BinNuisancePullPlotter:
