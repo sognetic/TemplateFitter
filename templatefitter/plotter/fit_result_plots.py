@@ -6,7 +6,6 @@ import logging
 import numpy as np
 
 from matplotlib import pyplot as plt
-import matplotlib.ticker as mticker
 
 from typing import Optional, Union, Tuple, List, Dict, Type
 
@@ -69,6 +68,7 @@ class FitResultPlot(FitPlotBase):
         data_column_names: DataColumnNamesInput,
         color: str,
     ) -> None:
+
         self._check_histogram_key(histogram_key=histogram_key)
 
         self._add_prebinned_component(
@@ -509,7 +509,7 @@ class BinNuisancePullPlot:
             _, ax = plt.subplots()
 
         total_number_of_pulls = self.binning.num_bins_total * len(self.nui_params_per_component)
-        end_of_plot = total_number_of_pulls - 0.5
+        end_of_plot = total_number_of_pulls
 
         # set up axes labeling, ranges, etc...
         ax.set_xlim(-0.5, end_of_plot)
@@ -534,7 +534,7 @@ class BinNuisancePullPlot:
         for component_no, nui_param_set in enumerate(self.nui_params_per_component):
             left_edge_track = component_no * self.binning.num_bins_total + 0.5
             ax.errorbar(
-                x=np.array([range(left_edge_track, left_edge_track + self.binning.num_bins_total)]) + 0.5,
+                x=np.arange(left_edge_track, left_edge_track + self.binning.num_bins_total),
                 y=nui_param_set.bin_counts,
                 yerr=nui_param_set.bin_errors,
                 marker="o",
