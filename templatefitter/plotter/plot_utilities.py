@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import matplotlib.axes._axes as axes
 import matplotlib.colors as mpl_colors
 
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Union
 from matplotlib import figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -26,6 +26,7 @@ __all__ = [
     "save_figure_as_tikz_tex_file",
     "get_white_or_black_from_background",
     "color_fader",
+    "add_hierarchical_axes_to_plot",
 ]
 
 AxesType = axes.Axes
@@ -107,18 +108,18 @@ def color_fader(
     return mpl_colors.to_hex((1 - mix) * c1 + mix * c2)
 
 
-def _convert_flat_binning_to_axis_hierarchy_and_labels(flat_binning: List[Tuple[float, ...]]):
+def _convert_flat_binning_to_axis_hierarchy_and_labels(flat_binning: np.ndarray):
     """
     Helper function to convert tuple-wise "flat" binning to format needed for hierarchical axes
     """
 
-    right_bin_edge = [len(flat_binning)]
-    flat_binning = np.array(flat_binning)
+    right_bin_edge = [flat_binning.shape[0]]
 
-    labels_and_ranges = []
-    factor = 1
+    labels_and_ranges = []  # type: List[Tuple[List[float], List[float]]]
+    factor = 1.0  # type: float
     for binlevel in range(flat_binning.shape[1] - 1, -1, -1):
         a = flat_binning[:, binlevel]
+        # The following numpy magic removes same entries following each other from the flat binning
         ranges, labels = zip(*enumerate(a[np.insert(np.diff(a).astype(np.bool), 0, True)]))
 
         if labels_and_ranges:
@@ -130,7 +131,14 @@ def _convert_flat_binning_to_axis_hierarchy_and_labels(flat_binning: List[Tuple[
     return labels_and_ranges
 
 
-def add_hierarchical_axes_to_plot(ax, x_binning: Binning, y_binning: Optional[Binning] = None, colors = None):
+def add_hierarchical_axes_to_plot(
+    ax,
+    x_binning: Union[Binning, List],
+    x_labels: Optional[List[Union[str, None]]] = None,
+    y_binning: Optional[Union[Binning, List]] = None,
+    y_labels: Optional[List[Union[str, None]]] = None,
+    colors=None,
+):
     """
     This is a somewhat hacky way to add multiple axis levels with color-coding to plots.
     Inspired by this solution:
@@ -140,40 +148,80 @@ def add_hierarchical_axes_to_plot(ax, x_binning: Binning, y_binning: Optional[Bi
     if colors is None:
         colors = KITColors.default_colors
 
+    if isinstance(x_binning, Binning):
+        if x_labels is not None:
+            assert x_binning.dimensions == len(x_labels)
+        else:
+            x_labels = [None] * x_binning.dimensions
+
+        flat_x_bins = np.array(x_binning.get_flat_list_of_bins())
+    else:
+        flat_x_bins = np.array(x_binning)
+        if x_labels is not None:
+            assert flat_x_bins.shape[1] == len(x_labels)
+        else:
+            x_labels = [None] * flat_x_bins.shape[1]
+
+    x_bins = _convert_flat_binning_to_axis_hierarchy_and_labels(flat_x_bins)
+
     # create axes next to plot
     divider = make_axes_locatable(ax)
 
-    barkw = dict(linewidth=0.72, ec="k", clip_on=False, align='edge')
-    textkw = dict(ha="center", va="center", fontsize="small")
+    barkw = dict(linewidth=0.72, ec="k", clip_on=False, align="edge")
+    textkw = dict(ha="center", va="center", fontsize="larger")
 
-    for xranges, xlabels in _convert_flat_binning_to_axis_hierarchy_and_labels(x_binning.get_flat_list_of_bins()):
+    for x_label, (xranges, xticklabels) in zip(x_labels, x_bins):
 
-        binmids = xranges[:-1] + np.diff(xranges)/2
+        binmids = xranges[:-1] + np.diff(xranges) / 2
         xax = divider.append_axes("bottom", "10%", pad=0.06, sharex=ax)
         xax.invert_yaxis()
         xax.axis("off")
-        xax.bar(xranges[:-1], np.ones(len(xlabels)),
-                width=np.diff(xranges), color=colors[:len(np.unique(xlabels))], **barkw)
+        xax.bar(
+            xranges[:-1],
+            np.ones(len(xticklabels)),
+            width=np.diff(xranges),
+            color=colors[: len(np.unique(xticklabels))],
+            **barkw,
+        )
 
-        for binmid, xlabel in zip(binmids, xlabels):
-            xax.text(binmid, 0.5 , xlabel, **textkw)
+        for binmid, xtick in zip(binmids, xticklabels):
+            xax.text(binmid, 0.5, xtick, **textkw)
+
+        if x_label is not None:
+            xax.text(-1, 0.5, x_label, **textkw)
 
     if y_binning is not None:
-        for yranges, ylabels in _convert_flat_binning_to_axis_hierarchy_and_labels(y_binning.get_flat_list_of_bins()):
 
-            binmids = yranges[:-1] + np.diff(yranges)/2
+        if isinstance(y_binning, Binning):
+            if y_labels is not None:
+                assert y_binning.dimensions == len(y_labels)
+            else:
+                y_labels = [None] * y_binning.dimensions
+            flat_y_bins = np.array(y_binning.get_flat_list_of_bins())
+        else:
+            flat_y_bins = np.array(y_binning)
+            if y_labels is not None:
+                assert flat_y_bins.shape[1] == len(y_labels)
+            else:
+                y_labels = [None] * flat_y_bins.shape[1]
+
+        y_bins = _convert_flat_binning_to_axis_hierarchy_and_labels(flat_y_bins)
+
+        for y_label, (yranges, yaxes) in zip(y_labels, y_bins):
+
+            binmids = yranges[:-1] + np.diff(yranges) / 2
             yax = divider.append_axes("left", "10%", pad=0.06, sharey=ax)
             yax.invert_yaxis()
             yax.axis("off")
-            yax.barh(yranges[:-1] ,np.ones(len(ylabels)),
-                     height=np.diff(yranges), **barkw)
+            yax.barh(yranges[:-1], np.ones(len(yaxes)), height=np.diff(yranges), **barkw)
 
-            for binmid, ylabel in zip(binmids, ylabels):
-                yax.text(0.5, binmid, ylabel,rotation=-90, **textkw)
+            for binmid, ytick in zip(binmids, yaxes):
+                yax.text(0.5, binmid, ytick, rotation=-90, **textkw)
+
+            if y_label is not None:
+                yax.text(-1, 0.5, y_label, **textkw)
 
     ax.margins(0)
     ax.tick_params(axis="both", bottom=0, left=0, labelbottom=0, labelleft=0)
 
     return ax
-
-

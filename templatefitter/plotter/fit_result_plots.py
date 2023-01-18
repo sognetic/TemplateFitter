@@ -7,7 +7,7 @@ import numpy as np
 
 from matplotlib import pyplot as plt
 
-from typing import Optional, Union, Tuple, List, Dict, Type
+from typing import Optional, Union, Tuple, List, Dict, Type, Any
 
 from dataclasses import dataclass
 
@@ -477,9 +477,11 @@ class BinNuisancePullPlot:
     def __init__(
         self,
         binning: Binning,
+        hist_variable: Optional[Tuple[HistVariable]] = None,
     ) -> None:
 
         self.binning = binning
+        self.hist_variables = hist_variable
         self.nui_params_per_component = []  # type: List[NuisanceResultPerTemplate]
 
     def add_component(
@@ -540,9 +542,13 @@ class BinNuisancePullPlot:
                 marker="o",
                 color=nui_param_set.color,
                 ls="none",
+                elinewidth=3,
             )
 
-        add_hierarchical_axes_to_plot(ax, self.binning)
+        if self.hist_variables is not None:
+            add_hierarchical_axes_to_plot(ax, self.binning, x_labels=[hv.x_label for hv in self.hist_variables])
+        else:
+            add_hierarchical_axes_to_plot(ax, self.binning)
 
 
 class BinNuisancePullPlotter:
@@ -550,6 +556,7 @@ class BinNuisancePullPlotter:
         self,
         fit_model: FitModel,
         minimize_result: MinimizeResult,
+        variables_by_channel: Optional[Union[Dict[str, Tuple[HistVariable, ...]], Tuple[HistVariable, ...]]] = None,
         plot_size: Tuple[float, float] = (15, 5),
         total_fig_size: Optional[Tuple[float, float]] = None,
     ) -> None:
@@ -558,6 +565,14 @@ class BinNuisancePullPlotter:
         self._fit_model = fit_model
         self.minimize_result = minimize_result
         self._plot_size = plot_size
+
+        _channel_names = [ch.name for ch in self._fit_model.mc_channels_to_plot]
+        if variables_by_channel is None:
+            self.variables_by_channel = {ch_name: None for ch_name in _channel_names}  # type: Dict[str, Any]
+        elif isinstance(variables_by_channel, tuple):
+            self.variables_by_channel = {ch_name: variables_by_channel for ch_name in _channel_names}
+        else:
+            self.variables_by_channel = variables_by_channel
 
         if (total_fig_size is not None) and (plot_size is not None):
             logging.warning(
@@ -613,7 +628,9 @@ class BinNuisancePullPlotter:
             if not separate_plots_for_components:
 
                 fig, ax = plt.subplots(nrows=1, ncols=1, figsize=fig_size, dpi=200)
-                plot = self._plotter_class(binning=mc_channel.binning)
+                plot = self._plotter_class(
+                    binning=mc_channel.binning, hist_variable=self.variables_by_channel[mc_channel]
+                )
 
                 for template in mc_channel.templates_in_plot_order:
 
@@ -631,7 +648,9 @@ class BinNuisancePullPlotter:
                 fig, axs = plt.subplots(nrows=mc_channel.total_number_of_templates, ncols=1, figsize=fig_size)
 
                 for ax, template in zip(axs, mc_channel.templates_in_plot_order):
-                    plot = self._plotter_class(binning=mc_channel.binning)
+                    plot = self._plotter_class(
+                        binning=mc_channel.binning, hist_variable=self.variables_by_channel[mc_channel.name]
+                    )
                     plot.add_component(
                         label=template.latex_label,
                         bin_counts=[i.value for i in template.bin_nuisance_parameters],
