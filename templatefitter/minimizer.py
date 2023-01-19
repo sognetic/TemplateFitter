@@ -556,8 +556,15 @@ class IMinuitMinimizer(AbstractMinimizer):
 
         self._success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
 
+        success_text = (
+            f"valid minimum: {fmin.is_valid}\n"
+            f"valid parameters: {fmin.has_valid_parameters}\n"
+            f"covariance exists: {fmin.has_covariance}\n"
+            f"covariance is accurate: {fmin.has_accurate_covar}\n"
+        )
+
         if check_success and not self._success:
-            raise RuntimeError(f"Minimization was not successful.\n" f"{fmin}\n")
+            raise RuntimeError(f"Minimization was not successful.\n" f"{fmin}\n" + success_text)
 
         assert self._success is not None
         return MinimizeResult(fcn_min_val=m.fval, params=self._params, success=self._success)
