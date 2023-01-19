@@ -547,14 +547,24 @@ class IMinuitMinimizer(AbstractMinimizer):
         if self.minuit_obj is None:
             self._create_minuit_obj(initial_param_values=initial_param_values, verbose=verbose, error_def=error_def)
         m = self.minuit_obj  # type: Minuit
-        fmin = m.migrad(ncall=600_000, iterate=5).fmin
-        m.hesse()
+
+        for attempt in range(1, 5):
+            # perform minimization twice!
+            fmin = m.migrad(ncall=200_000 * attempt, iterate=2 + attempt).fmin
+            m.hesse()
+            success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
+            if success:
+                break
+            else:
+                logging.warning(f"Minimum is inadequate, trying again w/ more iterations and calls (attempt {attempt})")
+                logging.warning(f"{fmin.is_valid=} and {fmin.has_valid_parameters=}"
+                                f" and {fmin.has_covariance=} and {fmin.has_accurate_covar=}")
 
         self._fcn_min_val = m.fval
         self._params.values = np.array(m.values)
         self._params.errors = np.array(m.errors)
 
-        self._success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
+        self._success = success
 
         success_text = (
             f"valid minimum: {fmin.is_valid}\n"
