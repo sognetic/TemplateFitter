@@ -554,9 +554,11 @@ class IMinuitMinimizer(AbstractMinimizer):
             m.hesse()
             success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
             if success:
+                if attempt > 1:
+                    logging.warning(f"Fit successful after retrying {attempt} times.")
                 break
             else:
-                logging.warning(f"Minimum is inadequate, trying again w/ more iterations and calls (attempt {attempt})")
+                logging.warning(f"Minimum is inadequate, trying again w/ more iterations/calls (attempt {attempt + 1})")
                 logging.warning(f"{fmin.is_valid=} and {fmin.has_valid_parameters=}"
                                 f" and {fmin.has_covariance=} and {fmin.has_accurate_covar=}")
 
