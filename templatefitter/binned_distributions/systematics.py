@@ -205,6 +205,61 @@ class SystematicsInfoItemFromUpDown(SystematicsInfoItem):
         return np.outer(diff_sym, diff_sym)
 
 
+class SystematicsInfoItemFromAsymmetricEigenvariations(SystematicsInfoItemFromUpDown, SystematicsInfoItem):
+    def __init__(
+        self,
+        sys_weight: np.ndarray,
+        sys_uncert: np.ndarray,  # First up, then down
+    ) -> None:
+        SystematicsInfoItem.__init__(self)
+        assert isinstance(sys_uncert, np.ndarray), type(sys_uncert)
+        assert len(sys_uncert.shape) == 2, sys_uncert.shape
+        assert sys_uncert.shape[1] == 2, sys_uncert.shape
+        assert len(sys_weight) == len(sys_uncert), (sys_weight.shape, sys_uncert.shape)
+
+        self._sys_type = "eigenvar_asymm"  # type: str
+        self._sys_weight = sys_weight  # type: np.ndarray
+        self._sys_uncert = sys_uncert  # type: np.ndarray
+
+    def get_varied_hist(
+        self,
+        initial_varied_hists: Optional[Tuple[np.ndarray, ...]],
+        binning: Binning,
+        data: np.ndarray = None,
+        weights: WeightsInputType = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        assert data is not None
+        assert binning is not None
+
+        assert len(self._sys_weight) == len(data), (len(self._sys_weight), len(data))
+
+        if initial_varied_hists is None:
+            initial_varied_hists = (np.zeros(binning.num_bins_total), np.zeros(binning.num_bins_total))
+        assert len(initial_varied_hists) == 2, len(initial_varied_hists)
+
+        _weights = self.get_weights(weights=weights)  # type: np.ndarray
+        wc = _weights > 0.0
+        weights_up = copy.copy(_weights)
+        weights_up[wc] = _weights[wc] / self._sys_weight[wc] * (self._sys_uncert[:, 0][wc])
+        weights_dw = copy.copy(_weights)
+        weights_dw[wc] = _weights[wc] / self._sys_weight[wc] * (self._sys_uncert[:, 1][wc])
+
+        bins = [np.array(list(edges)) for edges in binning.bin_edges]
+        hist_up, _ = np.histogramdd(data, bins=bins, weights=weights_up)
+        hist_dw, _ = np.histogramdd(data, bins=bins, weights=weights_dw)
+        assert hist_up.shape == hist_dw.shape, (hist_up.shape, hist_dw.shape)
+
+        if binning.dimensions > 1:
+            flat_hist_up = hist_up.flatten()
+            flat_hist_dw = hist_dw.flatten()
+            assert flat_hist_up.shape == flat_hist_dw.shape, (flat_hist_up.shape, flat_hist_dw.shape)
+            assert flat_hist_up.shape[0] == binning.num_bins_total, (flat_hist_up.shape, binning.num_bins_total)
+
+            return initial_varied_hists[0] + flat_hist_up, initial_varied_hists[1] + flat_hist_dw
+        else:
+            return initial_varied_hists[0] + hist_up, initial_varied_hists[1] + hist_dw
+
+
 class SystematicsInfoItemFromVariation(SystematicsInfoItem):
     def __init__(
         self,
@@ -369,6 +424,17 @@ class SystematicsInfo(Sequence):
                 assert sys_uncert.shape[1] == len(in_systematics[1]), (sys_uncert.shape, len(in_systematics[1]))
                 assert not np.isnan(sys_uncert).any()
                 return SystematicsInfoItemFromVariation(sys_weight=sys_weight, sys_uncert=sys_uncert)
+
+            elif isinstance(in_systematics[1], tuple):
+                up_down_sys_uncerts = np.array([Weights.obtain_weights(s, data, in_data) for s in in_systematics[1]])
+                assert not np.isnan(up_down_sys_uncerts).any()
+
+                assert sys_uncert.shape[0] == len(in_systematics), (sys_uncert.shape, len(in_systematics))
+                assert sys_uncert.shape[1] == len(in_systematics[1]), (sys_uncert.shape, len(in_systematics[1]))
+
+                return SystematicsInfoItemFromAsymmetricEigenvariations(
+                    sys_weight=sys_weight, sys_uncert=up_down_sys_uncerts
+                )
             else:
                 sys_uncert = Weights.obtain_weights(
                     weight_input=in_systematics[1],
