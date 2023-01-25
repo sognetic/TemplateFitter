@@ -205,7 +205,11 @@ class SystematicsInfoItemFromUpDown(SystematicsInfoItem):
         return np.outer(diff_sym, diff_sym)
 
 
-class SystematicsInfoItemFromAsymmetricEigenvariations(SystematicsInfoItemFromUpDown, SystematicsInfoItem):
+class SystematicsInfoItemFromAsymmetricEigenvariation(SystematicsInfoItemFromUpDown, SystematicsInfoItem):
+    """
+    Eigenvariations are independent by definition, here only a single one is added
+    """
+
     def __init__(
         self,
         sys_weight: np.ndarray,
@@ -245,19 +249,32 @@ class SystematicsInfoItemFromAsymmetricEigenvariations(SystematicsInfoItemFromUp
         weights_dw[wc] = _weights[wc] / self._sys_weight[wc] * (self._sys_uncert[:, 1][wc])
 
         bins = [np.array(list(edges)) for edges in binning.bin_edges]
+        hist_nominal, _ = np.histogramdd(data, bins=bins, weights=_weights[wc])
         hist_up, _ = np.histogramdd(data, bins=bins, weights=weights_up)
         hist_dw, _ = np.histogramdd(data, bins=bins, weights=weights_dw)
-        assert hist_up.shape == hist_dw.shape, (hist_up.shape, hist_dw.shape)
+        assert hist_nominal.shape == hist_up.shape == hist_dw.shape, (hist_nominal.shape, hist_up.shape, hist_dw.shape)
 
         if binning.dimensions > 1:
+            flat_hist_nominal = hist_nominal.flatten()
             flat_hist_up = hist_up.flatten()
             flat_hist_dw = hist_dw.flatten()
             assert flat_hist_up.shape == flat_hist_dw.shape, (flat_hist_up.shape, flat_hist_dw.shape)
             assert flat_hist_up.shape[0] == binning.num_bins_total, (flat_hist_up.shape, binning.num_bins_total)
 
-            return initial_varied_hists[0] + flat_hist_up, initial_varied_hists[1] + flat_hist_dw
+            return (
+                initial_varied_hists[0] + flat_hist_up - flat_hist_nominal,
+                initial_varied_hists[1] + flat_hist_dw - flat_hist_nominal,
+            )
         else:
-            return initial_varied_hists[0] + hist_up, initial_varied_hists[1] + hist_dw
+            return initial_varied_hists[0] + hist_up - hist_nominal, initial_varied_hists[1] + hist_dw - hist_nominal
+
+    @staticmethod
+    def get_cov_from_varied_hists(varied_hists: Tuple[np.ndarray, np.ndarray]) -> np.ndarray:
+        assert len(varied_hists) == 2, len(varied_hists)
+        hist_relative_up, hist_relative_dw = varied_hists
+        assert hist_relative_up.shape == hist_relative_dw.shape, (hist_relative_up.shape, hist_relative_dw.shape)
+
+        return (np.outer(hist_relative_up, hist_relative_up) + np.outer(hist_relative_dw, hist_relative_dw)) / 2.0
 
 
 class SystematicsInfoItemFromVariation(SystematicsInfoItem):
@@ -432,7 +449,7 @@ class SystematicsInfo(Sequence):
                 assert sys_uncert.shape[0] == len(in_systematics), (sys_uncert.shape, len(in_systematics))
                 assert sys_uncert.shape[1] == len(in_systematics[1]), (sys_uncert.shape, len(in_systematics[1]))
 
-                return SystematicsInfoItemFromAsymmetricEigenvariations(
+                return SystematicsInfoItemFromAsymmetricEigenvariation(
                     sys_weight=sys_weight, sys_uncert=up_down_sys_uncerts
                 )
             else:
