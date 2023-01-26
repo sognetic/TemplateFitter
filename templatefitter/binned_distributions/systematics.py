@@ -218,8 +218,7 @@ class SystematicsInfoItemFromAsymmetricEigenvariation(SystematicsInfoItemFromUpD
         SystematicsInfoItem.__init__(self)
         assert isinstance(sys_uncert, np.ndarray), type(sys_uncert)
         assert len(sys_uncert.shape) == 2, sys_uncert.shape
-        assert sys_uncert.shape[1] == 2, sys_uncert.shape
-        assert len(sys_weight) == len(sys_uncert), (sys_weight.shape, sys_uncert.shape)
+        assert sys_uncert.shape == (2, len(sys_weight)), (sys_uncert.shape, sys_weight.shape)
 
         self._sys_type = "eigenvar_asymm"  # type: str
         self._sys_weight = sys_weight  # type: np.ndarray
@@ -244,12 +243,12 @@ class SystematicsInfoItemFromAsymmetricEigenvariation(SystematicsInfoItemFromUpD
         _weights = self.get_weights(weights=weights)  # type: np.ndarray
         wc = _weights > 0.0
         weights_up = copy.copy(_weights)
-        weights_up[wc] = _weights[wc] / self._sys_weight[wc] * (self._sys_uncert[:, 0][wc])
+        weights_up[wc] = _weights[wc] / self._sys_weight[wc] * (self._sys_uncert[0][wc])
         weights_dw = copy.copy(_weights)
-        weights_dw[wc] = _weights[wc] / self._sys_weight[wc] * (self._sys_uncert[:, 1][wc])
+        weights_dw[wc] = _weights[wc] / self._sys_weight[wc] * (self._sys_uncert[1][wc])
 
         bins = [np.array(list(edges)) for edges in binning.bin_edges]
-        hist_nominal, _ = np.histogramdd(data, bins=bins, weights=_weights[wc])
+        hist_nominal, _ = np.histogramdd(data, bins=bins, weights=_weights)
         hist_up, _ = np.histogramdd(data, bins=bins, weights=weights_up)
         hist_dw, _ = np.histogramdd(data, bins=bins, weights=weights_dw)
         assert hist_nominal.shape == hist_up.shape == hist_dw.shape, (hist_nominal.shape, hist_up.shape, hist_dw.shape)
@@ -446,8 +445,10 @@ class SystematicsInfo(Sequence):
                 up_down_sys_uncerts = np.array([Weights.obtain_weights(s, data, in_data) for s in in_systematics[1]])
                 assert not np.isnan(up_down_sys_uncerts).any()
 
-                assert sys_uncert.shape[0] == len(in_systematics), (sys_uncert.shape, len(in_systematics))
-                assert sys_uncert.shape[1] == len(in_systematics[1]), (sys_uncert.shape, len(in_systematics[1]))
+                assert up_down_sys_uncerts.shape[0] == len(in_systematics), (
+                    up_down_sys_uncerts.shape,
+                    len(in_systematics),
+                )
 
                 return SystematicsInfoItemFromAsymmetricEigenvariation(
                     sys_weight=sys_weight, sys_uncert=up_down_sys_uncerts
