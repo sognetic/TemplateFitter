@@ -529,8 +529,8 @@ class BinNuisancePullPlot:
         # draw the horizontal lines and bands
         ax.hlines([-2, 2], -0.5, end_of_plot, colors="black", linestyles="dotted")
         ax.hlines([-1, 1], -0.5, end_of_plot, colors="black", linestyles="dashdot")
-        ax.fill_between([-0.5, end_of_plot], [-2, -2], [2, 2], facecolor="yellow")
-        ax.fill_between([-0.5, end_of_plot], [-1, -1], [1, 1], facecolor="green")
+        ax.fill_between([-0.5, end_of_plot], [-2, -2], [2, 2], facecolor="yellow", alpha=0.6)
+        ax.fill_between([-0.5, end_of_plot], [-1, -1], [1, 1], facecolor="green", alpha=0.6)
         ax.hlines([0], -0.5, end_of_plot, colors="black", linestyles="dashed")
 
         for component_no, nui_param_set in enumerate(self.nui_params_per_component):
@@ -557,7 +557,7 @@ class BinNuisancePullPlotter:
         fit_model: FitModel,
         minimize_result: MinimizeResult,
         variables_by_channel: Optional[Union[Dict[str, Tuple[HistVariable, ...]], Tuple[HistVariable, ...]]] = None,
-        plot_size: Tuple[float, float] = (15, 5),
+        plot_size: Tuple[float, float] = (10, 5),
         total_fig_size: Optional[Tuple[float, float]] = None,
     ) -> None:
 
@@ -636,7 +636,7 @@ class BinNuisancePullPlotter:
 
                     plot.add_component(
                         label=template.latex_label,
-                        bin_counts=[i.value for i in template.bin_nuisance_parameters],
+                        bin_counts=np.array([i.value for i in template.bin_nuisance_parameters]),
                         bin_errors=bin_errors[template.bin_nuisance_parameter_indices],
                         color=template.color,
                     )
@@ -653,7 +653,7 @@ class BinNuisancePullPlotter:
                     )
                     plot.add_component(
                         label=template.latex_label,
-                        bin_counts=[i.value for i in template.bin_nuisance_parameters],
+                        bin_counts=np.array([i.value for i in template.bin_nuisance_parameters]),
                         bin_errors=bin_errors[template.bin_nuisance_parameter_indices],
                         color=template.color,
                     )
