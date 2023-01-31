@@ -550,7 +550,7 @@ class IMinuitMinimizer(AbstractMinimizer):
 
         for attempt in range(1, 5):
             # perform minimization twice!
-            fmin = m.migrad(ncall=200_000 * attempt, iterate=2 + attempt).fmin
+            fmin = m.migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
             m.hesse()
             success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
             if success:
