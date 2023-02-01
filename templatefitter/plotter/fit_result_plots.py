@@ -91,12 +91,10 @@ class FitResultPlot(FitPlotBase):
     ) -> None:
         self._check_required_histograms()
 
-        bin_scaling = self.binning.get_bin_scaling()  # type: np.ndarray
-
         data_bin_count = self._histograms[self.data_key].get_bin_count_of_component(index=0)
         data_bin_errors_sq = self._histograms[self.data_key].get_histogram_squared_bin_errors_of_component(index=0)
 
-        mc_bin_counts = self._histograms[self.mc_key].get_bin_counts(factor=bin_scaling)
+        mc_bin_counts = self._histograms[self.mc_key].get_bin_counts()
         # clean_mc_bin_counts = [np.where(bc < 0., 0., bc) for bc in mc_bin_counts]
 
         mc_sum_bin_count = np.sum(np.array(mc_bin_counts), axis=0)
@@ -146,7 +144,7 @@ class FitResultPlot(FitPlotBase):
 
         ax1.errorbar(
             x=self.bin_mids,
-            y=data_bin_count * bin_scaling,
+            y=data_bin_count,
             yerr=np.sqrt(data_bin_errors_sq),
             xerr=self.bin_widths / 2 if markers_with_width else None,
             ls="",

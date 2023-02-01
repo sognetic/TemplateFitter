@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 
 from collections import OrderedDict
 from typing import Optional, Union, List, Tuple, Dict, ItemsView, KeysView, ValuesView
+from numpy import number
 
 from templatefitter.utility import PathType
 from templatefitter.binned_distributions import distributions_utility
@@ -146,14 +147,10 @@ class Histogram:
         )
         self._binning = new_binning
 
-    def get_bin_counts(
-        self,
-        factor: Union[None, float, np.ndarray] = None,
-    ) -> List[np.ndarray]:
-        if factor is None:
-            return [component.get_histogram_bin_count(binning=self.binning) for component in self._components]
-        else:
-            return [component.get_histogram_bin_count(binning=self.binning) * factor for component in self._components]
+    def get_bin_counts(self) -> List[np.ndarray]:
+
+        bin_scaling = self.binning.get_bin_scaling()
+        return [component.get_histogram_bin_count(binning=self.binning) * bin_scaling for component in self._components]
 
     def get_bin_count_of_component(
         self,
@@ -166,20 +163,27 @@ class Histogram:
         index: int,
         normalization_factor: Optional[float] = None,
     ) -> np.ndarray:
-        return self._components[index].get_histogram_squared_bin_errors(
-            binning=self.binning,
-            normalization_factor=normalization_factor,
+        return (
+            self._components[index].get_histogram_squared_bin_errors(
+                binning=self.binning,
+                normalization_factor=normalization_factor,
+            )
+            * self.binning.get_bin_scaling()
         )
 
     def get_statistical_uncertainty_per_bin(self, normalization_factor: Optional[float] = None) -> np.ndarray:
-        return np.sum(
-            [
-                component.get_histogram_squared_bin_errors(
-                    binning=self.binning, normalization_factor=normalization_factor
-                )
-                for component in self._components
-            ],
-            axis=0,
+
+        return np.array(
+            np.sum(
+                [  # Extra np.array for mypy
+                    component.get_histogram_squared_bin_errors(
+                        binning=self.binning, normalization_factor=normalization_factor
+                    )
+                    * self.binning.get_bin_scaling()
+                    for component in self._components
+                ],
+                axis=0,
+            )
         )
 
     def get_systematic_uncertainty_per_bin(self) -> Optional[np.ndarray]:
@@ -284,8 +288,8 @@ class Histogram:
         if self._raw_data_scope is not None:
             return self._raw_data_scope
 
-        min_values = []  # type: List[float]
-        max_values = []  # type: List[float]
+        min_values = []  # type: List[number]
+        max_values = []  # type: List[number]
 
         if len(self._components) == 0:
             raise RuntimeError("No components available to derive raw data range from...")
@@ -303,7 +307,7 @@ class Histogram:
             min_values.append(np.amin(component.min_val))
             max_values.append(np.amax(component.max_val))
 
-        scope_tuple = (np.amin(min_values), np.amax(max_values))  # type: Tuple[float, float]
+        scope_tuple = (float(np.amin(min_values)), float(np.amax(max_values)))  # type: Tuple[float, float]
         self._raw_data_scope = scope_tuple
         return scope_tuple
 

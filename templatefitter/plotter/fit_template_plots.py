@@ -92,9 +92,7 @@ class FitTemplatePlot(FitPlotBase):
     ) -> None:
         self._check_required_histograms()
 
-        bin_scaling = self.binning.get_bin_scaling()  # type: np.ndarray
-
-        template_bin_counts = self._histograms[self.hist_key].get_bin_counts(factor=bin_scaling)
+        template_bin_counts = self._histograms[self.hist_key].get_bin_counts()
         assert isinstance(template_bin_counts, list) and len(template_bin_counts) == 1, template_bin_counts
 
         mc_sum_bin_error_sq = self._histograms[self.hist_key].get_statistical_uncertainty_per_bin()
@@ -357,10 +355,10 @@ class FitTemplatesPlotter(FitPlotterBase):
 
     @staticmethod
     def _set_2d_axis_tick_labels(ax: AxesType, binning: Binning) -> None:
-        x_tick_positions = np.arange(binning.num_bins[0] + 1) - 0.5  # type: np.array
-        y_tick_positions = np.arange(binning.num_bins[1] + 1) - 0.5  # type: np.array
-        x_tick_labels = np.array(binning.bin_edges[0])  # type: np.array
-        y_tick_labels = np.array(binning.bin_edges[1])  # type: np.array
+        x_tick_positions = np.arange(binning.num_bins[0] + 1) - 0.5  # type: np.ndarray
+        y_tick_positions = np.arange(binning.num_bins[1] + 1) - 0.5  # type: np.ndarray
+        x_tick_labels = np.array(binning.bin_edges[0])  # type: np.ndarray
+        y_tick_labels = np.array(binning.bin_edges[1])  # type: np.ndarray
 
         ax.set_xticks(ticks=x_tick_positions)
         ax.set_yticks(ticks=y_tick_positions)
