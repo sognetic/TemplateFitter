@@ -345,7 +345,7 @@ class DataMCHistogramPlot(HistogramPlot):
             ax1.hist(
                 x=[self.bin_mids for _ in range(self._histograms[self.mc_key].number_of_components)],
                 bins=self.bin_edges,
-                weights=self._histograms[self.mc_key].get_bin_counts(factor=bin_scaling * norm_factor),
+                weights=self._histograms[self.mc_key].get_bin_counts(),
                 stacked=True,
                 edgecolor="black",
                 lw=0.3,
@@ -477,7 +477,8 @@ class DataMCHistogramPlot(HistogramPlot):
                 f"instance!\nAvailable histogram keys are: {self._histograms.histogram_keys}"
             )
 
-        component_bin_count = np.sum(np.array(self._histograms[component_key].get_bin_counts()), axis=0)
+        # Making mypy happy with extra np array call
+        component_bin_count = np.array(np.sum(np.array(self._histograms[component_key].get_bin_counts()), axis=0))
 
         if not normalize_to_data:
             norm_factor = 1.0  # type: float
@@ -619,7 +620,7 @@ class DataMCHistogramPlot(HistogramPlot):
 
             if ratio_type.lower() == "normal":
                 ratio[np.logical_xor((uh_data == 0.0), (uh_mc == 0.0))] = ufloat(-99, 0.0)
-                _max_val = 1.0  # type: Union[None, float, np.ndarray]
+                _max_val = 1.0  # type: Union[None, float, np.ndarray, np.number]
                 assert isinstance(_max_val, float), (type(_max_val).__name__, _max_val)
                 axis.set_ylim(bottom=-1.0 * _max_val, top=1.0 * _max_val)
             elif ratio_type.lower() == "vs_uncert":
