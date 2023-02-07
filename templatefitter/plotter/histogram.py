@@ -156,7 +156,7 @@ class Histogram:
         self,
         index: int,
     ) -> np.ndarray:
-        return self._components[index].get_histogram_bin_count(binning=self.binning)
+        return self._components[index].get_histogram_bin_count(binning=self.binning) * self.binning.get_bin_scaling()
 
     def get_histogram_squared_bin_errors_of_component(
         self,
