@@ -542,6 +542,7 @@ class FitModel:
         value: float,
         sigma: float,
         func: Optional[Callable] = None,
+        require_plausibility_for_constraint_value: bool = True,
     ) -> None:
         if isinstance(names, Iterable) and not isinstance(names, str):
             if func is None:
@@ -562,13 +563,19 @@ class FitModel:
                 assert isinstance(yield_values, Iterable)  # Make MyPy happy, this is guaranteed by above already
 
                 initial_yield_dict = dict(zip(names, yield_values))
-
                 initial_constraint_value = func(initial_yield_dict)
 
-                assert (value - sigma) < initial_constraint_value < (value + sigma), (
-                    f"The value of the constraint ({initial_constraint_value}) with initial parameters "
-                    f"{initial_yield_dict} is more than one sigma away from the value to constrain to {value}."
+                constraint_plausible = (value - 0.1 * sigma) < initial_constraint_value < (value + 0.1 * sigma)
+                constraint_plausible_text = (
+                    f"The value of the constraint ({initial_constraint_value}) with initial "
+                    f"parameters {initial_yield_dict} is more than 0.1 sigma away from the"
+                    f" value to constrain to ({value})."
                 )
+
+                if require_plausibility_for_constraint_value:
+                    assert constraint_plausible, constraint_plausible_text
+                elif not constraint_plausible:
+                    logging.warning(constraint_plausible_text)
 
         elif isinstance(names, str):
             names = [names]
@@ -609,9 +616,10 @@ class FitModel:
         value: float,
         sigma: float,
         func: Optional[Callable] = None,
+        require_plausibility_for_constraint_value: bool = True,
     ) -> None:
         self._check_is_not_finalized()
-        self._validate_add_constraint_arguments(names, value, sigma, func)
+        self._validate_add_constraint_arguments(names, value, sigma, func, require_plausibility_for_constraint_value)
 
         if isinstance(names, str):
             model_parameter = self._model_parameters[self._model_parameters_mapping[names]]
@@ -762,6 +770,56 @@ class FitModel:
                 column_names=channel.data_column_names,
                 channel_weights=None,
             )
+        self._has_data = True
+
+    def add_data_from_scaled_templates(
+        self,
+        scaling_dict: Dict[Union[Template, str], float],
+        round_bin_counts: bool = False,
+    ) -> None:
+        """Useful to test linearity of the fit."""
+
+        if self._original_data_channels is None and self._data_channels is not None:
+            # Backing up original data_channels
+            self._original_data_channels = self._data_channels
+
+        self._data_channels = ModelDataChannels()
+
+        for channel in self._channels:
+            channel_data = None
+            for template in channel.templates:
+
+                template_yield_parameter_name = template.yield_parameter.base_model_parameter.name
+                if template in scaling_dict:
+                    factor = scaling_dict.pop(template)
+                elif template_yield_parameter_name in scaling_dict:
+                    factor = scaling_dict.pop(template_yield_parameter_name)
+                else:
+                    factor = 1.0
+
+                logging.debug(
+                    f"Scaling template {template.name} with factor {factor}."
+                    f" Total bin counts in template: {np.sum(template.bin_counts)}"
+                )
+
+                if channel_data is None:
+                    channel_data = copy.copy(template.bin_counts) * factor
+                else:
+                    channel_data += template.bin_counts * factor
+
+            logging.debug(f"Synthetic data sum: {np.sum(channel_data)}")
+
+            self._data_channels.add_channel(
+                channel_name=channel.name,
+                channel_data=np.ceil(channel_data) if round_bin_counts else channel_data,
+                from_data=False,
+                binning=channel.binning,
+                column_names=channel.data_column_names,
+                channel_weights=None,
+            )
+
+        self._data_stat_errors_sq = None
+        self._data_channels._data_bin_counts = None
         self._has_data = True
 
     def add_toy_data_from_templates(
