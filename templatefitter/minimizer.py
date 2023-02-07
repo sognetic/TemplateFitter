@@ -330,6 +330,19 @@ class MinimizeResult(NamedTuple):
             "success": self.success,
         }
 
+    def to_dict(self, drop_matrices: bool = False) -> Dict[Any, Any]:
+
+        if drop_matrices:
+            to_drop = ["correlation_matrix", "covariance_matrix"]
+        else:
+            to_drop = []
+
+        return {
+            "fcn_min_val": self.fcn_min_val,
+            "params": {k: v for k, v in self.params.as_dict.items() if k not in to_drop},
+            "success": self.success,
+        }
+
     def save_to(
         self,
         path: PathType,
@@ -552,21 +565,26 @@ class IMinuitMinimizer(AbstractMinimizer):
             # perform minimization twice!
             fmin = m.migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
             m.hesse()
-            success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
-            if success:
+            self._success = (
+                fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
+            )
+
+            if self._success:
                 if attempt > 1:
                     logging.warning(f"Fit successful after retrying {attempt} times.")
                 break
             else:
                 logging.warning(f"Minimum is inadequate, trying again w/ more iterations/calls (attempt {attempt + 1})")
-                logging.warning(f"{fmin.is_valid=} and {fmin.has_valid_parameters=}"
-                                f" and {fmin.has_covariance=} and {fmin.has_accurate_covar=}")
+                logging.warning(
+                    f"fmin.is_valid={fmin.is_valid} and "
+                    f"fmin.has_valid_parameters={fmin.has_valid_parameters} and "
+                    f"fmin.has_covariance={fmin.has_covariance} and "
+                    f"fmin.has_accurate_covar={fmin.has_accurate_covar}"
+                )
 
         self._fcn_min_val = m.fval
         self._params.values = np.array(m.values)
         self._params.errors = np.array(m.errors)
-
-        self._success = success
 
         success_text = (
             f"valid minimum: {fmin.is_valid}\n"
