@@ -288,6 +288,11 @@ class FitObjectManager(MutableMapping[Union[str, int], _FitObjectT]):
     def __iter__(self) -> Iterator[Union[str, int]]:
         return iter(self._fit_object_mapping)
 
+    def wipe_base_data(self):
+        for fit_object in self._fit_objects:
+            if hasattr(fit_object, "_base_data"):
+                del fit_object._base_data
+
     @property
     def fit_object_type(self) -> Optional[Type]:
         if self._fit_object_type is None and len(self):

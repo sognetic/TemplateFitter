@@ -150,6 +150,12 @@ class FitModel:
     def template_bin_counts(self) -> np.ndarray:
         return self._channels.template_bin_counts
 
+    @property
+    def flattened_data_bin_counts(self):
+        return self._data_channels.get_flattened_data_bin_counts(
+            number_of_channels=self.number_of_channels, max_number_of_model_bins=self.max_number_of_bins_flattened
+        )
+
     @immutable_cached_property
     def max_number_of_bins_flattened(self) -> int:
         return self._channels.max_number_of_bins_flattened
@@ -2218,6 +2224,7 @@ class FitModel:
         if not self._ready_for_pickling:
             self._params.prepare_all_constraints_for_pickling()
             self._ready_for_pickling = True
+            self._template_manager.wipe_base_data()
 
     def restore_model_after_pickling(self):
         self._params.restore_all_constraints_after_pickling()
