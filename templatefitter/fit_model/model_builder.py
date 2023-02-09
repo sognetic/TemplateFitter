@@ -117,7 +117,9 @@ class FitModel:
 
         self._simple_constraint_container = SimpleConstraintContainer()
         self._complex_constraint_container = ComplexConstraintContainer()
-        self._using_numba = True
+
+        # By default, everything should be picklable
+        self._ready_for_pickling = True
 
         self.bin_nuisance_parameter_slice = None  # type: Optional[Tuple[int, int]]
         self.constraint_slice = None  # type: Optional[Tuple[int, int]]
@@ -634,6 +636,8 @@ class FitModel:
             self._params.add_complex_constraint_to_parameters(
                 func=func, parameter_indices=param_ids, constraint_value=value, constraint_sigma=sigma
             )
+
+            self._ready_for_pickling = False
 
     def _validate_add_data_arguments(
         self, channels: Dict[str, DataInputType], channel_weights: Optional[Dict[str, WeightsInputType]]
@@ -2210,19 +2214,14 @@ class FitModel:
 
         logging.info(self._model_setup_as_string())
 
-    def disable_numba_after_finalizing(self):
-        if not self._using_numba:
-            raise ValueError("Numba is not enabled.")
+    def prepare_model_for_pickling(self):
+        if not self._ready_for_pickling:
+            self._params.prepare_all_constraints_for_pickling()
+            self._ready_for_pickling = True
 
-        self._using_numba = False
-        self._params.disable_numba_after_finalizing()
-
-    def enable_numba_after_finalizing(self):
-        if self._using_numba:
-            raise ValueError("Numba is already enabled.")
-
-        self._using_numba = True
-        self._params.enable_numba_after_finalizing()
+    def restore_model_after_pickling(self):
+        self._params.restore_all_constraints_after_pickling()
+        self._ready_for_pickling = False
 
     def _model_setup_as_string(self) -> str:
         output_string = ""
