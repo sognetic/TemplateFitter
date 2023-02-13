@@ -509,7 +509,13 @@ class IMinuitMinimizer(AbstractMinimizer):
             param_types=param_types,
         )
 
-        self.minuit_obj = None  # type: Minuit
+        self._minuit_obj = None  # type: Optional[Minuit]
+
+    def reset(self, initial_param_values):
+        self._minuit_obj.reset()
+        self._minuit_obj.values = initial_param_values
+        for i in range(len(self._minuit_obj.params)):
+            self._minuit_obj.fixed[i] = self._get_fixed_params()[i]
 
     def _create_minuit_obj(
         self,
@@ -518,21 +524,21 @@ class IMinuitMinimizer(AbstractMinimizer):
         error_def: float = 0.5,
     ):
 
-        self.minuit_obj = Minuit(
+        self._minuit_obj = Minuit(
             self._fcn,
             initial_param_values,
             name=self.params.names,
         )
 
-        self.minuit_obj.strategy = 2
-        self.minuit_obj.errors = 0.05 * initial_param_values
-        self.minuit_obj.errordef = error_def
-        self.minuit_obj.limits = self._param_bounds
+        self._minuit_obj.strategy = 2
+        self._minuit_obj.errors = 0.05 * initial_param_values
+        self._minuit_obj.errordef = error_def
+        self._minuit_obj.limits = self._param_bounds
 
-        for i in range(len(self.minuit_obj.params)):
-            self.minuit_obj.fixed[i] = self._get_fixed_params()[i]
+        for i in range(len(self._minuit_obj.params)):
+            self._minuit_obj.fixed[i] = self._get_fixed_params()[i]
 
-        self.minuit_obj.print_level = 1 if verbose else 0
+        self._minuit_obj.print_level = 1 if verbose else 0
 
     def minimize(
         self,
@@ -544,27 +550,43 @@ class IMinuitMinimizer(AbstractMinimizer):
         check_success: bool = True,
     ) -> MinimizeResult:
 
-        if self.minuit_obj is None:
+        if self._minuit_obj is None:
             self._create_minuit_obj(initial_param_values=initial_param_values, verbose=verbose, error_def=error_def)
-        m = self.minuit_obj  # type: Minuit
+        else:
+            self.reset(initial_param_values=initial_param_values)
+
+        m = self._minuit_obj  # type: Minuit
 
         for attempt in range(1, 5):
-            # perform minimization twice!
+            # perform minimization at least twice!
             fmin = m.migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
-            m.hesse()
-            success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
-            if success:
+            if get_hesse:
+                m.hesse()
+                success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
+            else:
+                success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance
+
+            if success or not check_success:
                 if attempt > 1:
                     logging.warning(f"Fit successful after retrying {attempt} times.")
                 break
             else:
                 logging.warning(f"Minimum is inadequate, trying again w/ more iterations/calls (attempt {attempt + 1})")
-                logging.warning(f"{fmin.is_valid=} and {fmin.has_valid_parameters=}"
-                                f" and {fmin.has_covariance=} and {fmin.has_accurate_covar=}")
+                logging.warning(
+                    f"fmin.is_valid={fmin.is_valid} "
+                    f"and fmin.has_valid_parameters={fmin.has_valid_parameters} "
+                    f"and fmin.has_covariance={fmin.has_covariance} "
+                    f"and fmin.has_accurate_covar={fmin.has_accurate_covar}"
+                )
 
         self._fcn_min_val = m.fval
         self._params.values = np.array(m.values)
         self._params.errors = np.array(m.errors)
+
+        if fmin.has_covariance:
+            fixed_params = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
+            self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
+            self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
 
         self._success = success
 
