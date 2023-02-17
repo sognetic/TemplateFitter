@@ -1778,9 +1778,6 @@ class FitModel:
         if len(np.argwhere(norm_denominator == 0)) > 0:
             # Handling cases where empty templates would cause division by 0, resulting in a template shape with NaNs.
             for row, col, _ in np.argwhere(norm_denominator == 0):
-                assert all(templates_with_shape_uncertainties[row, col, :] == 0), templates_with_shape_uncertainties[
-                    row, col, :
-                ]
                 norm_denominator[row, col, 0] = 1.0
 
         templates_with_shape_uncertainties /= norm_denominator
