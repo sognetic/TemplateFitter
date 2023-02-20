@@ -102,6 +102,17 @@ def run_basic_example():
             initial_value=initial_eff_dict[component.name],
         )
 
+    # We can also add an additional term to the likelihood which we will access in the constraint as a prefactor to one of the yields.
+    # We don't want it to influence anything else in the fit so we'll use the generic parameter type
+    model.add_model_parameter(
+        name="prefactor_background_2",
+        parameter_type=ParameterHandler.generic_parameter_type,
+        floating=True,
+        initial_value=1.0,
+        constrain_to_value=1.0,
+        constraint_sigma=0.1,
+    )
+
     # First creating some templates, then adding them to the template
     templates = []
     for component_number, component in enumerate(components):
@@ -132,10 +143,10 @@ def run_basic_example():
 
     # Adding a constraint to the sum of the two background components
     model.add_constraint(
-        ["yield_background_1", "yield_background_2"],
+        ["yield_background_1", "yield_background_2", "prefactor_background_2"],
         2000.0,
         10.0,
-        lambda x: 0.3333 * x["yield_background_1"] + x["yield_background_2"],
+        lambda x: 0.3333 * x["yield_background_1"] + x["prefactor_background_2"] * x["yield_background_2"],
     )
 
     # Instead of real data we'll add some Asimov data to the fitter. This is equivalent to the sum of all templates.

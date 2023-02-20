@@ -599,7 +599,7 @@ class FitModel:
                 )
 
             model_parameter = self._model_parameters[self._model_parameters_mapping[name]]
-            if model_parameter.constraint_value is not None:
+            if model_parameter.constraint_value is not None and func is None:
                 raise RuntimeError(
                     f"The ModelParameter '{name}' already is constrained with the settings"
                     f"\n\tconstraint_value = {model_parameter.constraint_value}"
