@@ -67,11 +67,13 @@ class ParameterHandler:
     fraction_parameter_type = "fraction"  # type: str
     efficiency_parameter_type = "efficiency"  # type: str
     bin_nuisance_parameter_type = "bin_nuisance"  # type: str
+    generic_parameter_type = "generic"  # type: str
     parameter_types = (
         yield_parameter_type,
         fraction_parameter_type,
         efficiency_parameter_type,
         bin_nuisance_parameter_type,
+        generic_parameter_type,
     )  # type: Tuple[str, ...]
 
     def __init__(self) -> None:
@@ -238,20 +240,6 @@ class ParameterHandler:
                 f"Parameters with ID {set(parameter_indices) - existing_parameter_indices}"
                 f" don't exist yet so no constraint can be applied."
             )
-
-        existing_constraints = self.get_constraint_information()[0]
-        if not set(parameter_indices).isdisjoint(existing_constraints):
-            raise RuntimeError(
-                f"There are already constraints defined for the parameters"
-                f" with ID {set(parameter_indices) & set(existing_constraints)}"
-            )
-        for param_id in parameter_indices:
-            assert self._parameter_infos[param_id].constraint_value is None, self._parameter_infos[
-                param_id
-            ].constraint_value
-            assert self._parameter_infos[param_id].constraint_sigma is None, self._parameter_infos[
-                param_id
-            ].constraint_sigma
 
         assert constraint_value is not None
         assert constraint_sigma is not None
