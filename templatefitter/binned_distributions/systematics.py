@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from abc import ABC, abstractmethod
-from typing import Union, Optional, Tuple, List, Sequence, overload
+from typing import Union, Optional, Tuple, List, Sequence, overload, TypeVar, Collection
 
 from templatefitter.binned_distributions.binning import Binning
 from templatefitter.binned_distributions.weights import Weights, WeightsInputType
@@ -23,10 +23,12 @@ __all__ = [
 
 SystematicsUncertInputType = Union[WeightsInputType, List[WeightsInputType]]
 SystematicsFromVarInputType = Tuple[WeightsInputType, SystematicsUncertInputType]
+
 MatrixSystematicsInputType = Union[np.ndarray, pd.Series]
-SingleSystematicsInputType = Union[None, MatrixSystematicsInputType, SystematicsFromVarInputType]
-MultipleSystematicsInputType = List[SingleSystematicsInputType]
-SystematicsInputType = Union[SingleSystematicsInputType, MultipleSystematicsInputType]
+SingleSystematicsInputType = Union[MatrixSystematicsInputType, SystematicsFromVarInputType]
+
+T = TypeVar("T", bound=SingleSystematicsInputType)
+SystematicsInputType = Union[T, List[T]]
 
 
 class SystematicsInfoItem(ABC):
@@ -50,7 +52,7 @@ class SystematicsInfoItem(ABC):
         self,
         initial_varied_hists: Optional[Tuple[np.ndarray, ...]],
         binning: Binning,
-        data: Optional[np.ndarray] = None,
+        data: np.ndarray = None,
         weights: WeightsInputType = None,
     ) -> Tuple[np.ndarray, ...]:
         raise NotImplementedError()
@@ -108,7 +110,7 @@ class SystematicsInfoItemFromCov(SystematicsInfoItem):
         self,
         initial_varied_hists: Optional[Tuple[np.ndarray, ...]],
         binning: Binning,
-        data: Optional[np.ndarray] = None,
+        data: np.ndarray = None,
         weights: WeightsInputType = None,
     ) -> Tuple[np.ndarray, ...]:
         raise NotImplementedError("This method is not (yet) supported for systematics provided via covariance matrix.")
@@ -159,7 +161,7 @@ class SystematicsInfoItemFromUpDown(SystematicsInfoItem):
         self,
         initial_varied_hists: Optional[Tuple[np.ndarray, ...]],
         binning: Binning,
-        data: Optional[np.ndarray] = None,
+        data: np.ndarray = None,
         weights: WeightsInputType = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         assert data is not None
@@ -235,7 +237,7 @@ class SystematicsInfoItemFromVariation(SystematicsInfoItem):
         self,
         initial_varied_hists: Optional[Tuple[np.ndarray, ...]],
         binning: Binning,
-        data: Optional[np.ndarray] = None,
+        data: np.ndarray = None,
         weights: WeightsInputType = None,
     ) -> Tuple[np.ndarray, ...]:
         assert data is not None
@@ -321,7 +323,7 @@ class SystematicsInfo(Sequence):
 
     @staticmethod
     def _get_sys_info_from_cov_matrix(
-        in_systematics: SystematicsInputType,
+        in_systematics: SystematicsInputType[MatrixSystematicsInputType],
     ) -> SystematicsInfoItem:
         assert isinstance(in_systematics, np.ndarray), type(in_systematics).__name__
         assert len(in_systematics.shape) == 2, len(in_systematics.shape)
@@ -330,8 +332,8 @@ class SystematicsInfo(Sequence):
 
     def _get_single_sys_info(
         self,
-        in_systematics: SystematicsInputType,
-        data: np.ndarray,
+        in_systematics: SingleSystematicsInputType,
+        data: Optional[np.ndarray],
         in_data: Optional[pd.DataFrame],
         weights: WeightsInputType,
     ) -> Optional[SystematicsInfoItem]:
@@ -341,11 +343,22 @@ class SystematicsInfo(Sequence):
         if len(in_systematics) == 1:
             return self._get_sys_info_from_cov_matrix(in_systematics)
         elif len(in_systematics) == 2:
-            assert isinstance(weights, (np.ndarray, pd.Series)), type(weights).__name__
+            if isinstance(weights, str) and isinstance(in_data, pd.DataFrame):
+                assert weights in in_data.columns
+                weights = in_data[weights]
+            else:
+                assert isinstance(weights, (np.ndarray, pd.Series)), type(weights).__name__
+
             sys_weight = Weights.obtain_weights(
                 weight_input=in_systematics[0], data=data, data_input=in_data
             )  # type: np.ndarray
-            assert len(sys_weight) == len(data), (len(sys_weight), len(data))
+            if data is not None:
+                assert len(sys_weight) == len(data), (len(sys_weight), len(data))
+            elif in_data is not None:
+                assert len(sys_weight) == len(in_data), (len(sys_weight), len(in_data))
+            else:
+                raise RuntimeError("Provide either the 'in_data' argument or the 'data' argument.")
+
             assert len(sys_weight) == len(weights)
             assert not np.isnan(sys_weight).any()
             assert np.all(sys_weight[weights > 0.0] > 0.0)
@@ -374,12 +387,12 @@ class SystematicsInfo(Sequence):
 
     def _get_sys_info_from_list(
         self,
-        in_systematics: SystematicsInputType,
+        in_systematics: Collection[SingleSystematicsInputType],
         data: np.ndarray,
         in_data: Optional[pd.DataFrame],
         weights: WeightsInputType,
     ) -> Sequence[SystematicsInfoItem]:
-        assert isinstance(in_systematics, list), type(in_systematics).__name__
+        assert isinstance(in_systematics, Collection), type(in_systematics).__name__
         if len(in_systematics) == 0:
             return []
 

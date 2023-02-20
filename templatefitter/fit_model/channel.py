@@ -665,3 +665,6 @@ class ModelChannels(ChannelContainer):
         )
 
         self._template_shapes_checked = True
+
+    def __repr__(self) -> str:
+        return f"ModelChannels({str(self._channels)})"

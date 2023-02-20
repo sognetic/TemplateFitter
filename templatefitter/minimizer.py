@@ -509,6 +509,37 @@ class IMinuitMinimizer(AbstractMinimizer):
             param_types=param_types,
         )
 
+        self._minuit_obj = None  # type: Optional[Minuit]
+
+    def reset(self, initial_param_values):
+        self._minuit_obj.reset()
+        self._minuit_obj.values = initial_param_values
+        for i in range(len(self._minuit_obj.params)):
+            self._minuit_obj.fixed[i] = self._get_fixed_params()[i]
+
+    def _create_minuit_obj(
+        self,
+        initial_param_values: np.ndarray,
+        verbose: bool = False,
+        error_def: float = 0.5,
+    ):
+
+        self._minuit_obj = Minuit(
+            self._fcn,
+            initial_param_values,
+            name=self.params.names,
+        )
+
+        self._minuit_obj.strategy = 2
+        self._minuit_obj.errors = 0.05 * initial_param_values
+        self._minuit_obj.errordef = error_def
+        self._minuit_obj.limits = self._param_bounds
+
+        for i in range(len(self._minuit_obj.params)):
+            self._minuit_obj.fixed[i] = self._get_fixed_params()[i]
+
+        self._minuit_obj.print_level = 1 if verbose else 0
+
     def minimize(
         self,
         initial_param_values: np.ndarray,
@@ -519,36 +550,55 @@ class IMinuitMinimizer(AbstractMinimizer):
         check_success: bool = True,
     ) -> MinimizeResult:
 
-        m = Minuit(
-            self._fcn,
-            initial_param_values,
-            name=self.params.names,
-        )
+        if self._minuit_obj is None:
+            self._create_minuit_obj(initial_param_values=initial_param_values, verbose=verbose, error_def=error_def)
+        else:
+            self.reset(initial_param_values=initial_param_values)
 
-        m.errors = 0.05 * initial_param_values
-        m.errordef = error_def
-        m.limits = self._param_bounds
+        m = self._minuit_obj  # type: Minuit
 
-        for i in range(len(m.params)):
-            m.fixed[i] = self._get_fixed_params()[i]
+        for attempt in range(1, 5):
+            # perform minimization at least twice!
+            fmin = m.migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
+            if get_hesse:
+                m.hesse()
+                success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
+            else:
+                success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance
 
-        m.print_level = 1 if verbose else 0
-
-        # perform minimization twice!
-        fmin = m.migrad(ncall=100000, iterate=2).fmin
+            if success or not check_success:
+                if attempt > 1:
+                    logging.warning(f"Fit successful after retrying {attempt} times.")
+                break
+            else:
+                logging.warning(f"Minimum is inadequate, trying again w/ more iterations/calls (attempt {attempt + 1})")
+                logging.warning(
+                    f"fmin.is_valid={fmin.is_valid} "
+                    f"and fmin.has_valid_parameters={fmin.has_valid_parameters} "
+                    f"and fmin.has_covariance={fmin.has_covariance} "
+                    f"and fmin.has_accurate_covar={fmin.has_accurate_covar}"
+                )
 
         self._fcn_min_val = m.fval
         self._params.values = np.array(m.values)
         self._params.errors = np.array(m.errors)
 
-        fixed_params = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
-        self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
-        self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
+        if fmin.has_covariance:
+            fixed_params = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
+            self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
+            self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
 
-        self._success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance
+        self._success = success
+
+        success_text = (
+            f"valid minimum: {fmin.is_valid}\n"
+            f"valid parameters: {fmin.has_valid_parameters}\n"
+            f"covariance exists: {fmin.has_covariance}\n"
+            f"covariance is accurate: {fmin.has_accurate_covar}\n"
+        )
 
         if check_success and not self._success:
-            raise RuntimeError(f"Minimization was not successful.\n" f"{fmin}\n")
+            raise RuntimeError(f"Minimization was not successful.\n" f"{fmin}\n" + success_text)
 
         assert self._success is not None
         return MinimizeResult(fcn_min_val=m.fval, params=self._params, success=self._success)
