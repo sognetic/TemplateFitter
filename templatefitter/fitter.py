@@ -2,6 +2,7 @@ import tqdm
 import logging
 import numpy as np
 
+from copy import copy
 from multiprocessing import Pool
 from typing import Optional, Union, Tuple, List, Dict, Sequence
 
@@ -339,6 +340,7 @@ class TemplateFitter:
         verbose: bool = True,
         fix_nui_params: bool = False,
         catch_exception: bool = False,
+        reuse_last_fit_result: bool = False,
     ) -> float:
         """
         Calculate significance for the specified yield parameter using the profile likelihood ratio.
@@ -366,6 +368,8 @@ class TemplateFitter:
             Whether to fix nuisance parameters. Default is False.
         catch_exception : bool, optional
             Whether to catch IndexError in calculation (will return 0.0 if error occurs). Default is False.
+        reuse_last_fit_result: bool, optional
+            Whether to reuse the nominal fit result or refit. Default is False.
 
         Returns
         -------
@@ -375,24 +379,28 @@ class TemplateFitter:
         """
 
         # perform the nominal minimization
-        minimizer = minimizer_factory(
-            minimizer_id=self._minimizer_id,
-            fcn=self._nll_creator(fix_nuisance_parameters=fix_nui_params),
-            names=self._nll.param_names,
-            param_types=self._nll.param_types,
-        )
+        if reuse_last_fit_result and self._last_fit_result is not None:
+            fit_result = copy(self._last_fit_result)
 
-        if fix_nui_params:
-            for param_id in self._fit_model.floating_nuisance_parameter_indices:
-                minimizer.set_param_fixed(param_id=param_id)
+        else:
+            minimizer = minimizer_factory(
+                minimizer_id=self._minimizer_id,
+                fcn=self._nll_creator(fix_nuisance_parameters=fix_nui_params),
+                names=self._nll.param_names,
+                param_types=self._nll.param_types,
+            )
 
-        logging.info("Perform nominal minimization:")
-        for param_id_or_str in self._fixed_parameters:
-            minimizer.set_param_fixed(param_id=param_id_or_str)
+            if fix_nui_params:
+                for param_id in self._fit_model.floating_nuisance_parameter_indices:
+                    minimizer.set_param_fixed(param_id=param_id)
 
-        for param_id_or_str, bounds in self._bound_parameters.items():
-            minimizer.set_param_bounds(param_id=param_id_or_str, bounds=bounds)
-        fit_result = minimizer.minimize(initial_param_values=self._nll.x0, verbose=verbose)
+            logging.info("Perform nominal minimization:")
+            for param_id_or_str in self._fixed_parameters:
+                minimizer.set_param_fixed(param_id=param_id_or_str)
+
+            for param_id_or_str, bounds in self._bound_parameters.items():
+                minimizer.set_param_bounds(param_id=param_id_or_str, bounds=bounds)
+            fit_result = minimizer.minimize(initial_param_values=self._nll.x0, verbose=verbose)
 
         if fit_result.params[yield_parameter][0] < 0:
             return 0.0
