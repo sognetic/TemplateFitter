@@ -7,6 +7,7 @@ import numpy as np
 
 from abc import ABC, abstractmethod
 from typing import Optional, Union, List, Tuple, Dict, NamedTuple, Callable, Iterable
+from numbers import Real as RealNumber
 from templatefitter.fit_model.constraint import ComplexConstraint, ComplexConstraintContainer
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
@@ -271,11 +272,21 @@ class ParameterHandler:
 
         if self._complex_constraints:
             for constr in self._complex_constraints:
+                constr_parameter_infos = self.get_parameter_infos_by_index(constr.constraint_indices)
+
                 float_indices = range(sum(self.floating_parameter_mask))
-                constr_indices = list(np.flatnonzero(self.floating_parameter_mask))
-                mapper = dict(zip(constr_indices, float_indices))
-                model_parameter_mapping = {self.get_name(pi): mapper[pi] for pi in constr.constraint_indices}
-                constr.finalize(model_parameter_mapping, use_numba=use_numba)
+                floating_constr_indices = list(np.flatnonzero(self.floating_parameter_mask))
+                floating_param_mapper = dict(zip(floating_constr_indices, float_indices))
+
+                model_parameter_mapping = {
+                    pi.name: floating_param_mapper[pi.param_id] for pi in constr_parameter_infos if pi.floating
+                }
+                fixed_parameters = {pi.name: pi.initial_value for pi in constr_parameter_infos if not pi.floating}
+                constr.finalize(
+                    model_parameter_mapping=model_parameter_mapping,
+                    fixed_parameters=fixed_parameters,
+                    use_numba=use_numba,
+                )
 
     def prepare_all_constraints_for_pickling(self):
         assert self._is_finalized
@@ -770,14 +781,14 @@ class ParameterHandler:
                     f"\n\tconstraint_sigma = {constraint_sigma}"
                 )
         else:
-            if not isinstance(constraint_value, float):
+            if not isinstance(constraint_value, RealNumber):
                 raise ValueError(
-                    f"The parameter must be either 'None' or a float, "
+                    f"The parameter must be either 'None' or a number, "
                     f"but you provided an object of type {type(constraint_value)}"
                 )
-            if not isinstance(constraint_sigma, float):
+            if not isinstance(constraint_sigma, RealNumber):
                 raise ValueError(
-                    f"If the parameter 'constraint_value' is defined via a float, so must be the "
+                    f"If the parameter 'constraint_value' is defined via a number, so must be the "
                     f"parameter 'constraint_sigma', but you provided for the latter an object of "
                     f"type {type(constraint_sigma)}!"
                 )
@@ -811,6 +822,11 @@ class Parameter(ABC):
                 f"If a constraint is defined for a parameter, the initial value of the parameter "
                 f"should be the value the parameter is constrained to, but the input values are:\n"
                 f"\tinitial_value = {initial_value}\n\tconstrain_to_value = {constrain_to_value}"
+            )
+        if self._constraint_value is not None and not self._floating:
+            raise ValueError(
+                f"Cannot apply a constraint ({self._constraint_value, self._constraint_sigma}) "
+                f"to a fixed parameter {self._name}."
             )
 
         self._index = None  # type: Optional[int]

@@ -55,7 +55,7 @@ class ComplexConstraint(Constraint):
         else:
             return self.constraint_indices
 
-    def finalize(self, model_parameter_mapping: Dict[str, int], use_numba: bool):
+    def finalize(self, model_parameter_mapping: Dict[str, int], fixed_parameters: Dict[str, float], use_numba: bool):
 
         assert not self._is_finalized
         self._is_finalized = True
@@ -64,9 +64,15 @@ class ComplexConstraint(Constraint):
         assert self._model_parameter_mapping is None
 
         self._model_parameter_mapping = model_parameter_mapping
+        self._fixed_parameters = fixed_parameters
         self._use_numba = use_numba
 
-        self._constraint_func = ConstraintCallableCreator(self._func, model_parameter_mapping, use_numba=use_numba)
+        self._constraint_func = ConstraintCallableCreator(
+            func=self._func,
+            name_index_mapping=model_parameter_mapping,
+            fixed_parameters=fixed_parameters,
+            use_numba=use_numba,
+        )
 
     def prepare_for_pickling(self):
 
@@ -81,10 +87,11 @@ class ComplexConstraint(Constraint):
             raise RuntimeError("Nothing to restore!")
 
         assert self._model_parameter_mapping is not None
+        assert self._fixed_parameters is not None
 
         self._func = LambdaType(marshal.loads(self._funcstring), globals())
         self._constraint_func = ConstraintCallableCreator(
-            self._func, self._model_parameter_mapping, use_numba=self._use_numba
+            self._func, self._model_parameter_mapping, self._fixed_parameters, use_numba=self._use_numba
         )
 
     def __call__(self, parameter_vector):
@@ -94,17 +101,32 @@ class ComplexConstraint(Constraint):
             raise RuntimeError("Please finalize the ComplexConstraint before calling it.")
 
 
+_jitspec = [
+    ("floatparam_mapping", nb_types.DictType(nb_types.unicode_type, nb_types.int32)),
+    ("fixed_parameters", nb_types.DictType(nb_types.unicode_type, nb_types.float32)),
+    ("parameter_vector", nb_types.float32[:]),
+]
+
+
 class ParameterTranslator:
     """
     Jit-ized helper class which translates __getitem__ calls with parameter names to array indices.
     """
 
-    def __init__(self, mapping, parameter_vector):
-        self.mapping = mapping
+    def __init__(
+        self, floating_param_mapping: Dict[str, int], fixed_param_values: Dict[str, float], parameter_vector: np.ndarray
+    ):
+
+        self.fixed_parameters = fixed_param_values
+        self.floatparam_mapping = floating_param_mapping
         self.parameter_vector = parameter_vector
 
-    def __getitem__(self, index):
-        return self.parameter_vector[self.mapping[index]]
+    def __getitem__(self, param_name):
+
+        if param_name in self.fixed_parameters:
+            return self.fixed_parameters[param_name]
+        else:
+            return self.parameter_vector[self.floatparam_mapping[param_name]]
 
     def update_parameter_vector(self, parameter_vector):
         self.parameter_vector = parameter_vector
@@ -118,23 +140,42 @@ class ConstraintCallableCreator:
     # We save this to allow resetting the class in case of dynamically added attributes (which numba doesn't like)
     _allowed_attributes = list(ParameterTranslator.__dict__.keys())
 
-    def __init__(self, func: Callable, name_index_mapping: Dict[str, int], use_numba: bool = True):
+    def __init__(
+        self,
+        func: Callable,
+        name_index_mapping: Dict[str, int],
+        fixed_parameters: Dict[str, float],
+        use_numba: bool = True,
+    ):
 
         self.use_numba = use_numba
         if use_numba:
             self._func = nb.njit(func)
-            self._mapping = nb.typed.Dict.empty(
-                key_type=nb_types.unicode_type,
-                value_type=nb_types.int32,
-            )
         else:
             self._func = func
-            self._mapping = {}
 
-        for k, v in name_index_mapping.items():
-            self._mapping[k] = np.int32(v)
+        self._name_to_index_mapping = self._initialize_dicts(
+            name_index_mapping, numba_type=nb_types.int32, numpy_type=np.int32
+        )
+        self._fixed_parameters = self._initialize_dicts(
+            fixed_parameters, numba_type=nb_types.float32, numpy_type=np.float32
+        )
 
         self._translator = self._create_translator()
+
+    def _initialize_dicts(self, input_dict: Dict, numba_type, numpy_type) -> Union[nb.typed.Dict, Dict]:
+        if self.use_numba:
+            retdict = nb.typed.Dict.empty(
+                key_type=nb_types.unicode_type,
+                value_type=numba_type,
+            )
+        else:
+            retdict = {}
+
+        for k, v in input_dict.items():
+            retdict[k] = numpy_type(v)
+
+        return retdict
 
     def _cleanup_parameter_translator(self):
         for attribute in list(ParameterTranslator.__dict__):
@@ -146,13 +187,11 @@ class ConstraintCallableCreator:
         if self.use_numba:
             self._cleanup_parameter_translator()
 
-            jitspec = [
-                ("mapping", nb_types.DictType(nb_types.unicode_type, nb_types.int32)),
-                ("parameter_vector", nb_types.float32[:]),
-            ]
-            return jitclass(jitspec)(ParameterTranslator)(self._mapping, np.zeros(1, dtype=np.float32))
+            return jitclass(_jitspec)(ParameterTranslator)(
+                self._name_to_index_mapping, self._fixed_parameters, np.zeros(1, dtype=np.float32)
+            )
         else:
-            return ParameterTranslator(self._mapping, np.zeros(1, dtype=np.float32))
+            return ParameterTranslator(self._name_to_index_mapping, self._fixed_parameters, np.zeros(1, dtype=np.float32))
 
     def __call__(self, parameter_vector: np.ndarray) -> Callable:
 
@@ -246,7 +285,6 @@ class ComplexConstraintContainer(ConstraintContainer):
     """
 
     def append(self, value: ComplexConstraint):
-
         self._constraints.append(value)
         for ci in value.constraint_indices:
             self._constraint_parameter_indices[ci].append(len(self))
