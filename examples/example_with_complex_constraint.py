@@ -177,7 +177,7 @@ def run_basic_example():
     # Lastly, we can have a look at the significance of the signal + background hypothesis vs. a background only hypothesis.
     # Note: You might get a warning from numpy which you can safely ignore here.
     significance_dict = {}
-    for yield_parameter in param_handler.get_parameter_names_for_type(ParameterHandler.yield_parameter_type):
+    for yield_parameter in param_handler.get_yield_parameter_names():
         significance_dict[yield_parameter] = fitter.get_significance(
             yield_parameter=yield_parameter, fix_nui_params=False, verbose=True, catch_exception=True
         )

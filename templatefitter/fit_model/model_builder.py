@@ -559,7 +559,7 @@ class FitModel:
                 )
             else:
                 try:
-                    func({n: 0 for n in names})
+                    func({n: 1 for n in names})
                 except KeyError as e:
                     raise KeyError(
                         f"The function you have passed as a constraint uses parameter names not specified "
