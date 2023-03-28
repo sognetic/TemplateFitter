@@ -213,6 +213,7 @@ class FitResultPlotter(FitPlotterBase):
         fit_model: FitModel,
         reference_dimension: int = 0,
         fig_size: Tuple[float, float] = (5, 5),
+        include_sys: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -309,7 +310,7 @@ class FitResultPlotter(FitPlotterBase):
                 current_plot.plot_on(
                     ax1=axs,
                     #  style=???,  # str = "stacked",  # TODO: Include summed style
-                    #  include_sys=???,  # bool = False,
+                    include_sys=self._include_sys,  # bool = False,
                     #  markers_with_width=???,  # bool = True,
                     #  sum_color=???,  # str = plot_style.KITColors.kit_purple,
                     #  draw_legend=???,  # bool = True,
@@ -421,7 +422,7 @@ class FitResultPlotter(FitPlotterBase):
             plot.plot_on(
                 ax1=axs,
                 #  style=???,  # str = "stacked",  # TODO: Include summed style
-                #  include_sys=???,  # bool = False,
+                include_sys=self._include_sys,  # bool = False,
                 #  markers_with_width=???,  # bool = True,
                 #  sum_color=???,  # str = plot_style.KITColors.kit_purple,
                 #  draw_legend=???,  # bool = True,

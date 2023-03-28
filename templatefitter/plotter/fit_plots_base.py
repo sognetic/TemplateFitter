@@ -66,6 +66,7 @@ class FitPlotterBase(ABC):
         fit_model: FitModel,
         reference_dimension: int = 0,
         fig_size: Tuple[float, float] = (5, 5),
+        include_sys: bool = False,
         **kwargs,
     ) -> None:
         self._fit_model = fit_model  # type: FitModel
@@ -78,6 +79,7 @@ class FitPlotterBase(ABC):
 
         self._fig_size = fig_size  # type: Tuple[float, float]
         self._optional_arguments_dict = kwargs  # type: Dict[str, Any]
+        self._include_sys = include_sys  # type: bool
 
         self._channel_name_list = []  # type: List[str]
         self._channel_variables_per_dim = {}  # type: Dict[str, Dict[int, HistVariable]]
