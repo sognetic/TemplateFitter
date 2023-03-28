@@ -325,7 +325,7 @@ class FitResultPlotter(FitPlotterBase):
                 else:
                     fig.suptitle(self._get_channel_label(channel=mc_channel), x=0.97, horizontalalignment="right")
 
-                if sub_bin_info_text is not None:
+                if sub_bin_info_text is not None and "luminosity" not in self._optional_arguments_dict:
                     info_title = sub_bin_info_text
                     if axs.get_ylim()[1] > 0.85e4 and bin_info_pos == "left":
                         padding = " " * 9
@@ -335,6 +335,17 @@ class FitResultPlotter(FitPlotterBase):
                         info_title = info_title
 
                     axs.set_title(info_title, loc=bin_info_pos, fontsize=6, color=plot_style.KITColors.dark_grey)
+                else:
+                    axs.set_title(
+                        r"$\int \mathcal{L} \,dt="
+                        + str(self._optional_arguments_dict["luminosity"])
+                        + r"\,\mathrm{fb}^{-1}$",
+                        fontdict={"size": 10},
+                        loc="right",
+                    )
+                    axs.set_title(
+                        "Belle II Own Work", loc="left", fontdict={"size": 10, "style": "normal", "weight": "bold"}
+                    )
 
                 self.add_info_text(
                     axis=axs,
@@ -432,7 +443,14 @@ class FitResultPlotter(FitPlotterBase):
                 #  y_scale=???,  # float = 1.1
             )
 
-            axs.set_title(self._get_channel_label(channel=mc_channel), loc="right")
+            if "luminosity" in self._optional_arguments_dict:
+                axs.set_title(
+                    r"$\int \mathcal{L} \,dt="
+                    + str(self._optional_arguments_dict["luminosity"])
+                    + r"\,\mathrm{fb}^{-1}$",
+                    loc="right",
+                )
+            axs.set_title("Belle II Own Work", loc="left", fontdict={"size": 10, "style": "normal", "weight": "bold"})
 
             self.add_info_text(
                 axis=axs,
