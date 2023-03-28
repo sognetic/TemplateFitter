@@ -161,6 +161,7 @@ class FitTemplatesPlotter(FitPlotterBase):
         variables_by_channel: Union[Dict[str, Tuple[HistVariable, ...]], Tuple[HistVariable, ...]],
         fit_model: FitModel,
         fig_size: Tuple[float, float] = (5, 5),
+        include_sys: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -168,6 +169,7 @@ class FitTemplatesPlotter(FitPlotterBase):
             fit_model=fit_model,
             reference_dimension=0,
             fig_size=fig_size,
+            include_sys=include_sys,
             **kwargs,
         )
 
@@ -270,7 +272,7 @@ class FitTemplatesPlotter(FitPlotterBase):
                 y_variable = self.channel_variables(dimension=dim_pair[1])[mc_channel.name]  # type: HistVariable
 
                 for template in mc_channel.templates_in_plot_order:
-                    template_bin_count, template_bin_error_sq = template.project_onto_two_dimensions(
+                    template_bin_count, _ = template.project_onto_two_dimensions(
                         bin_counts=template.expected_bin_counts(use_initial_values=use_initial_values),
                         dimensions=dim_pair,
                         bin_errors_squared=template.expected_bin_errors_squared(use_initial_values=use_initial_values),
@@ -350,6 +352,146 @@ class FitTemplatesPlotter(FitPlotterBase):
                         export(fig=fig, filename=filename, target_dir=output_dir_path, close_figure=True)
                         output_lists["pdf"].append(os.path.join(output_dir_path, f"{filename}.pdf"))
                         output_lists["png"].append(os.path.join(output_dir_path, f"{filename}.png"))
+
+        return output_lists
+
+    def plot_2d_contours(
+        self,
+        use_initial_values: bool = True,
+        draw_line_labels: bool = False,
+        draw_legend: bool = True,
+        output_dir_path: Optional[PathType] = None,
+        output_name_tag: Optional[str] = None,
+        base_color: Union[None, str, Dict[str, str]] = None,
+        n_lines: int = 5,
+        alternative_temp_color: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, List[PathType]]:
+        output_lists = {
+            "pdf": [],
+            "png": [],
+        }  # type: Dict[str, List[PathType]]
+
+        if (output_dir_path is None) != (output_name_tag is None):
+            raise ValueError(
+                "Parameter 'output_name_tag' and 'output_dir_path' must either both be provided or both set to None!"
+            )
+
+        if isinstance(base_color, dict):
+            c_map_base_color = base_color  # type: Union[str, Dict[str, str]]
+        else:
+            c_map_base_color = self.default_2d_c_map_base_color if base_color is None else base_color
+        alt_temp_color_dict = {} if alternative_temp_color is None else alternative_temp_color  # type: Dict[str, str]
+
+        for mc_channel in self._fit_model.mc_channels_to_plot:
+            if mc_channel.binning.dimensions < 2:
+                continue
+
+            for dim_pair in iter_combinations(list(range(mc_channel.binning.dimensions)), 2):
+                current_binning = mc_channel.binning.get_binning_for_x_dimensions(dimensions=dim_pair)
+
+                x_variable = self.channel_variables(dimension=dim_pair[0])[mc_channel.name]  # type: HistVariable
+                y_variable = self.channel_variables(dimension=dim_pair[1])[mc_channel.name]  # type: HistVariable
+
+                legend_proxies = {}
+
+                fig, ax = plt.subplots(nrows=1, ncols=1, figsize=self._fig_size, dpi=200)
+                for template in mc_channel.templates_in_plot_order:
+                    template_bin_count, _ = template.project_onto_two_dimensions(
+                        bin_counts=template.expected_bin_counts(use_initial_values=use_initial_values),
+                        dimensions=dim_pair,
+                        bin_errors_squared=template.expected_bin_errors_squared(use_initial_values=use_initial_values),
+                    )
+                    bin_scaling_tuple = current_binning.get_bin_scaling_per_dim_tuple()  # type: Tuple[np.ndarray, ...]
+                    bin_scaling = np.outer(*bin_scaling_tuple)  # type: np.ndarray
+                    assert len(bin_scaling.shape) == 2, bin_scaling.shape
+                    assert bin_scaling.shape[0] == bin_scaling_tuple[0].shape[0], (
+                        bin_scaling.shape,
+                        bin_scaling_tuple[0].shape,
+                    )
+                    assert bin_scaling.shape[1] == bin_scaling_tuple[1].shape[0], (
+                        bin_scaling.shape,
+                        bin_scaling_tuple[1].shape,
+                    )
+
+                    x_bin_mids, y_bin_mids = current_binning.bin_mids
+
+                    assert template_bin_count.shape == bin_scaling.shape, (template_bin_count.shape, bin_scaling.shape)
+                    assert template_bin_count.shape == (len(x_bin_mids), len(y_bin_mids)), (
+                        template_bin_count.shape,
+                        x_bin_mids,
+                        y_bin_mids,
+                    )
+                    value_matrix = template_bin_count * bin_scaling  # type: np.ndarray
+
+                    default_template_color = self._get_template_color(
+                        key=template.process_name, original_color=template.color
+                    )
+                    c_map_temp_color = alt_temp_color_dict.get(default_template_color, default_template_color)
+                    if isinstance(c_map_base_color, dict):
+                        base_c = c_map_base_color.get(
+                            default_template_color, self.default_2d_c_map_base_color
+                        )  # type: str
+                        colors = [base_c, c_map_temp_color]  # type: List[str]
+                    else:
+                        colors = [c_map_base_color, c_map_temp_color]
+
+                    c_values = [0.0, np.max(value_matrix)]  # type: List[float]
+
+                    if np.sum(template_bin_count) == 0:
+                        c_values = [0.0, 1.0]
+                        value_matrix = np.ones_like(value_matrix) * 0.8
+
+                    c_norm = plt.Normalize(min(c_values), max(c_values))
+                    c_tuples = list(zip(map(c_norm, c_values), colors))
+                    color_map = mpl_colors.LinearSegmentedColormap.from_list(name="", colors=c_tuples)
+
+                    contour_object = ax.contour(
+                        x_bin_mids, y_bin_mids, value_matrix.T, n_lines, origin="lower", cmap=color_map
+                    )
+
+                    legend_proxies[self._get_plot_title(template=template, channel=mc_channel)] = plt.Rectangle(
+                        (0, 0), 1, 1, fc=c_map_temp_color
+                    )
+
+                    # if specified, draw the "height" numbers on the lines:
+                    if draw_line_labels:
+                        ax.clabel(contour_object, inline=True, fontsize=13)
+
+                ax.set_xlabel(x_variable.x_label, plot_style.xlabel_pos)
+                ax.set_ylabel(y_variable.x_label, plot_style.ylabel_pos)
+
+                ax.set_xlim(xmin=current_binning.range[0][0], xmax=current_binning.range[0][1])
+                ax.set_ylim(ymin=current_binning.range[1][0], ymax=current_binning.range[1][1])
+
+                if draw_legend:
+                    ax.legend(handles=legend_proxies.values(), labels=legend_proxies.keys(), frameon=False)
+
+                if np.sum(template_bin_count) == 0:
+                    ax.text(
+                        x=0.5,
+                        y=0.5,
+                        s="No Data",
+                        fontsize="x-large",
+                        ha="center",
+                        va="center",
+                        zorder=10,
+                        transform=ax.transAxes,
+                    )
+
+                if output_dir_path is not None:
+                    assert output_name_tag is not None
+
+                    add_info = ""
+                    if use_initial_values:
+                        add_info = "_with_initial_values"
+
+                    dims_str = f"{dim_pair[0]}_{dim_pair[1]}"  # type: str
+                    template_info = f"{mc_channel.name}_template_contour_{template.process_name}{add_info}"
+                    filename = f"{self.plot_2d_name_prefix}_{output_name_tag}_dim_{dims_str}_{template_info}"
+
+                    export(fig=fig, filename=filename, target_dir=output_dir_path, close_figure=True)
+                    output_lists["pdf"].append(os.path.join(output_dir_path, f"{filename}.pdf"))
+                    output_lists["png"].append(os.path.join(output_dir_path, f"{filename}.png"))
 
         return output_lists
 
