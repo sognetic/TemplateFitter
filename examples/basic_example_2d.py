@@ -158,7 +158,6 @@ def run_basic_example() -> Tuple[MinimizeResult, Dict[str, float]]:
     fit_template_plotter_m2 = FitTemplatesPlotter(variables_by_channel=tuple(fit_vars), fit_model=model)
     fit_template_plotter_m2.plot_2d_templates(use_initial_values=True, output_dir_path=output_folder, output_name_tag="")
     fit_template_plotter_m2.plot_2d_contours(use_initial_values=True, output_dir_path=output_folder, output_name_tag="")
-    quit()
 
     # Here we'll now set up a TemplateFitter object and perform the fit itself.
     # We'll use nuisance parameter for each bin and each template in the model.
