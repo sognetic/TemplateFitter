@@ -39,6 +39,7 @@ class KITColors:
     kit_cyan = "#23a1e0"  # type: str
     kit_black = "#000000"  # type: str
     white = "#ffffff"  # type: str
+    lighter_grey = "#eeeeec"  # type: str
     light_grey = "#bdbdbd"  # type: str
     grey = "#797979"  # type: str
     dark_grey = "#4e4e4e"  # type: str

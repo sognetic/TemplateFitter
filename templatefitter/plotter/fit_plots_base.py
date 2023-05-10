@@ -491,12 +491,7 @@ class FitPlotterBase(ABC):
 
         return "\n".join(string_list)
 
-    def add_info_text(
-        self,
-        axis: AxesType,
-        fig: FigureType,
-        key: Optional[str] = None,
-    ) -> None:
+    def add_info_text(self, axis: AxesType, fig: FigureType, key: Optional[str] = None) -> None:
         additional_info_str = self._get_optional_argument_value(
             argument_name="additional_info_str",
             default_value=None,
