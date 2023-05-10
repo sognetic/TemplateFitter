@@ -58,14 +58,14 @@ def run_basic_example() -> Tuple[MinimizeResult, Dict[str, float]]:
 
     # Defining a variable and range for which we will generate data
     voi = ("firstVariableOfInterest", "secondVariableOfInterest")  # type: Tuple[str, str]
-    voi_physics_limits = ((0, 20), (0, 10))  # type: Tuple[Tuple[float, float], Tuple[float, float]]
+    voi_physics_limits = ((0, 25), (0, 15))  # type: Tuple[Tuple[float, float], Tuple[float, float]]
 
     # Defining a HistVariable object for the fit to use.
     # Note: The scope / fit range used here can be (and is) smaller than the one used for generating the dataset.
     # This is done for illustration here but can sometimes be beneficial.
     # The fitter will later correct the yields, so they apply to the entire dataset.
-    fit_var_1 = HistVariable(df_label=voi[0], n_bins=20, scope=(0, 25), var_name="Variable of Interest 1")
-    fit_var_2 = HistVariable(df_label=voi[1], n_bins=20, scope=(0, 15), var_name="Variable of Interest 2")
+    fit_var_1 = HistVariable(df_label=voi[0], n_bins=10, scope=(0, 20), var_name="Variable of Interest 1")
+    fit_var_2 = HistVariable(df_label=voi[1], n_bins=20, scope=(0, 10), var_name="Variable of Interest 2")
     fit_vars = [fit_var_1, fit_var_2]
 
     # Defining a decay channel and two components from which templates will be generated
@@ -154,6 +154,12 @@ def run_basic_example() -> Tuple[MinimizeResult, Dict[str, float]]:
 
     # This also returns the path of the plot files that are created
     fit_result_plotter_m2.plot_fit_result(use_initial_values=True, output_dir_path=output_folder, output_name_tag="")
+    fit_result_plotter_m2.plot_fit_result_projections(
+        project_to=0, use_initial_values=True, output_dir_path=output_folder, output_name_tag=""
+    )
+    fit_result_plotter_m2.plot_fit_result_projections(
+        project_to=1, use_initial_values=True, output_dir_path=output_folder, output_name_tag=""
+    )
 
     fit_template_plotter_m2 = FitTemplatesPlotter(variables_by_channel=tuple(fit_vars), fit_model=model)
     fit_template_plotter_m2.plot_2d_templates(use_initial_values=True, output_dir_path=output_folder, output_name_tag="")
@@ -166,6 +172,8 @@ def run_basic_example() -> Tuple[MinimizeResult, Dict[str, float]]:
 
     # Now let's plot the fit results
     fit_result_plotter_m2.plot_fit_result(output_dir_path=output_folder, output_name_tag="")
+    fit_result_plotter_m2.plot_fit_result_projections(project_to=0, output_dir_path=output_folder, output_name_tag="")
+    fit_result_plotter_m2.plot_fit_result_projections(project_to=1, output_dir_path=output_folder, output_name_tag="")
 
     # We can now also do a plot of the bin nuisance parameter pulls
     pull_plotter = BinNuisancePullPlotter(fit_model=model, minimize_result=result, variables_by_channel=tuple(fit_vars))

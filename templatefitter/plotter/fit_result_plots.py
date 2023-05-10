@@ -16,8 +16,9 @@ from templatefitter.binned_distributions.binning import Binning
 from templatefitter.binned_distributions.binned_distribution import DataColumnNamesInput
 
 from templatefitter.plotter import plot_style
-from templatefitter.plotter.plot_utilities import export, AxesType
+from templatefitter.plotter.plot_utilities import export, AxesType, FigureType
 from templatefitter.plotter.histogram_variable import HistVariable
+from templatefitter.plotter.histogram_plots import DataMCHistogramBase, DataMCComparisonOutput, DataMCComparisonOutputType
 from templatefitter.plotter.fit_plots_base import FitPlotBase, FitPlotterBase
 from templatefitter.plotter.plot_utilities import add_hierarchical_axes_to_plot
 
@@ -36,10 +37,9 @@ plot_style.set_matplotlibrc_params()
 
 
 # TODO: Option to add Chi2 test
-# TODO: Option to add ratio plot
 
 
-class FitResultPlot(FitPlotBase):
+class FitResultPlot(FitPlotBase, DataMCHistogramBase):
     valid_styles = ["stacked", "summed"]  # type: List[str]
     valid_ratio_types = ["normal", "vs_uncert"]  # type: List[str]
     valid_gof_methods = ["pearson", "cowan", "toys"]  # type: List[str]
@@ -85,24 +85,31 @@ class FitResultPlot(FitPlotBase):
 
     def plot_on(
         self,
-        ax1: AxesType,
+        ax1: Optional[AxesType] = None,
+        ax2: Optional[AxesType] = None,
         style: str = "stacked",
+        ratio_type: str = "normal",
+        gof_check_method: Optional[str] = None,
         include_sys: bool = False,
-        markers_with_width: bool = True,
+        y_label: str = "Events",
         sum_color: str = plot_style.KITColors.kit_purple,
         draw_legend: bool = True,
         legend_inside: bool = True,
         legend_cols: Optional[int] = None,
         legend_loc: Optional[Union[int, str]] = None,
+        markers_with_width: bool = True,
+        plot_outlier_indicators: bool = True,
         y_scale: float = 1.1,
-    ) -> None:  # type: ignore[override]
+        **kwargs,
+    ) -> DataMCComparisonOutputType:
+
+        ax1, ax2 = self._check_axes_input(ax1=ax1, ax2=ax2)
         self._check_required_histograms()
 
         data_bin_count = self._histograms[self.data_key].get_bin_count_of_component(index=0)
         data_bin_errors_sq = self._histograms[self.data_key].get_histogram_squared_bin_errors_of_component(index=0)
 
         mc_bin_counts = self._histograms[self.mc_key].get_bin_counts()
-        # clean_mc_bin_counts = [np.where(bc < 0., 0., bc) for bc in mc_bin_counts]
 
         mc_sum_bin_count = np.sum(np.array(mc_bin_counts), axis=0)
         mc_sum_bin_error_sq = self._histograms[self.mc_key].get_statistical_uncertainty_per_bin()
@@ -160,6 +167,27 @@ class FitResultPlot(FitPlotBase):
             label=self._histograms[self.data_key].labels[0],
         )
 
+        try:
+            comparison_output = self.do_goodness_of_fit_test(
+                method=gof_check_method,
+                mc_bin_count=mc_sum_bin_count,
+                data_bin_count=data_bin_count,
+                stat_mc_uncertainty_sq=mc_sum_bin_error_sq,
+                mc_is_normalized_to_data=False,
+            )  # type: DataMCComparisonOutputType
+        except IndexError:
+            logging.warning(
+                f"Could not run goodness of fit check with {gof_check_method} method "
+                f"for variable {self.variable.df_label}! Reverting to check with pearson method!"
+            )
+            comparison_output = self.do_goodness_of_fit_test(
+                method="pearson",
+                mc_bin_count=mc_sum_bin_count,
+                data_bin_count=data_bin_count,
+                stat_mc_uncertainty_sq=mc_sum_bin_error_sq,
+                mc_is_normalized_to_data=False,
+            )
+
         if draw_legend:
             if style == "stacked":
                 self.draw_legend(
@@ -179,10 +207,27 @@ class FitResultPlot(FitPlotBase):
                     y_axis_scale=y_scale,
                 )
 
-        ax1.set_ylim(bottom=0.0, top=None)
+        self.add_residual_ratio_plot(
+            axis=ax2,
+            ratio_type=ratio_type,
+            data_bin_count=data_bin_count,
+            mc_bin_count=mc_sum_bin_count,
+            mc_error_sq=mc_sum_bin_error_sq,
+            markers_with_width=markers_with_width,
+            systematics_are_included=include_sys,
+            marker_color=plot_style.KITColors.kit_black,
+            include_outlier_info=True,
+            plot_outlier_indicators=plot_outlier_indicators,
+        )
 
+        ax1.set_ylim(bottom=0.0, top=None)
         ax1.set_ylabel(self._get_y_label(normed=False), plot_style.ylabel_pos)
         ax1.set_xlabel(self._variable.x_label, plot_style.xlabel_pos)
+
+        ax1.set_xlim(self.bin_edges[0], self.bin_edges[-1])
+        ax2.set_xlim(self.bin_edges[0], self.bin_edges[-1])
+
+        return comparison_output
 
     def _check_histogram_key(
         self,
@@ -221,6 +266,7 @@ class FitResultPlotter(FitPlotterBase):
             fit_model=fit_model,
             reference_dimension=reference_dimension,
             fig_size=fig_size,
+            include_sys=include_sys,
             **kwargs,
         )
         self._plotter_class = FitResultPlot  # type: Type[FitPlotBase]
@@ -306,52 +352,55 @@ class FitResultPlotter(FitPlotterBase):
                     color=self._get_data_color(),
                 )
 
-                fig, axs = plt.subplots(nrows=1, ncols=1, figsize=self._fig_size, dpi=200)
-                current_plot.plot_on(
-                    ax1=axs,
-                    #  style=???,  # str = "stacked",  # TODO: Include summed style
-                    include_sys=self._include_sys,  # bool = False,
-                    #  markers_with_width=???,  # bool = True,
-                    #  sum_color=???,  # str = plot_style.KITColors.kit_purple,
-                    #  draw_legend=???,  # bool = True,
-                    #  legend_inside=???,  # bool = True,
-                    #  legend_cols=???,  # Optional[int] = None,
-                    #  legend_loc=???,  # Optional[Union[int, str]] = None,
-                    #  y_scale=???,  # float = 1.1
+                fig, axs = plt.subplots(
+                    nrows=2,
+                    ncols=1,
+                    figsize=self._fig_size,
+                    dpi=200,
+                    sharex=True,
+                    gridspec_kw={"height_ratios": [3.5, 1]},
+                )
+                main_ax, ratio_ax = axs
+
+                data_mc_comparison = current_plot.plot_on(
+                    ax1=main_ax,
+                    ax2=ratio_ax,
+                    ratio_type="vs_uncert",
+                    include_sys=self._include_sys,
+                    gof_check_method="pearson",
                 )
 
                 if bin_info_pos == "left" or sub_bin_info_text is None:
-                    axs.set_title(self._get_channel_label(channel=mc_channel), loc="right")
+                    main_ax.set_title(self._get_channel_label(channel=mc_channel), loc="right")
                 else:
                     fig.suptitle(self._get_channel_label(channel=mc_channel), x=0.97, horizontalalignment="right")
 
                 if sub_bin_info_text is not None and "luminosity" not in self._optional_arguments_dict:
                     info_title = sub_bin_info_text
-                    if axs.get_ylim()[1] > 0.85e4 and bin_info_pos == "left":
+                    if main_ax.get_ylim()[1] > 0.85e4 and bin_info_pos == "left":
                         padding = " " * 9
                         info_title = "\n".join([padding + info for info in sub_bin_info_text.split("\n")])
 
                     if bin_info_pos == "right":
                         info_title = info_title
 
-                    axs.set_title(info_title, loc=bin_info_pos, fontsize=6, color=plot_style.KITColors.dark_grey)
-                else:
-                    axs.set_title(
+                    main_ax.set_title(info_title, loc=bin_info_pos, fontsize=6, color=plot_style.KITColors.dark_grey)
+                elif self._optional_arguments_dict.get("luminosity"):
+                    main_ax.set_title(
                         r"$\int \mathcal{L} \,dt="
                         + str(self._optional_arguments_dict["luminosity"])
                         + r"\,\mathrm{fb}^{-1}$",
                         fontdict={"size": 10},
                         loc="right",
                     )
-                    axs.set_title(
+                    main_ax.set_title(
                         "Belle II Own Work", loc="left", fontdict={"size": 10, "style": "normal", "weight": "bold"}
                     )
 
-                self.add_info_text(
-                    axis=axs,
-                    fig=fig,
-                    key=mc_channel.name,
-                )
+                if isinstance(data_mc_comparison, DataMCComparisonOutput):
+                    self.add_info_text(axis=main_ax, fig=fig, key=mc_channel.name, gof=data_mc_comparison)
+                else:
+                    self.add_info_text(axis=main_ax, fig=fig, key=mc_channel.name)
 
                 if output_dir_path is not None:
                     assert output_name_tag is not None
@@ -429,34 +478,37 @@ class FitResultPlotter(FitPlotterBase):
                 color=self._get_data_color(),
             )
 
-            fig, axs = plt.subplots(nrows=1, ncols=1, figsize=self._fig_size, dpi=200)
-            plot.plot_on(
-                ax1=axs,
-                #  style=???,  # str = "stacked",  # TODO: Include summed style
-                include_sys=self._include_sys,  # bool = False,
-                #  markers_with_width=???,  # bool = True,
-                #  sum_color=???,  # str = plot_style.KITColors.kit_purple,
-                #  draw_legend=???,  # bool = True,
-                #  legend_inside=???,  # bool = True,
-                #  legend_cols=???,  # Optional[int] = None,
-                #  legend_loc=???,  # Optional[Union[int, str]] = None,
-                #  y_scale=???,  # float = 1.1
+            fig, axs = plt.subplots(
+                nrows=2, ncols=1, figsize=self._fig_size, dpi=200, sharex=True, gridspec_kw={"height_ratios": [3.5, 1]}
+            )
+            main_ax, ratio_ax = axs
+
+            data_mc_comparison = plot.plot_on(
+                ax1=main_ax,
+                ax2=ratio_ax,
+                ratio_type="vs_uncert",
+                include_sys=self._include_sys,
+                gof_check_method="pearson",
             )
 
             if "luminosity" in self._optional_arguments_dict:
-                axs.set_title(
+                main_ax.set_title(
                     r"$\int \mathcal{L} \,dt="
                     + str(self._optional_arguments_dict["luminosity"])
                     + r"\,\mathrm{fb}^{-1}$",
                     loc="right",
                 )
-            axs.set_title("Belle II Own Work", loc="left", fontdict={"size": 10, "style": "normal", "weight": "bold"})
+            main_ax.set_title("Belle II Own Work", loc="left", fontdict={"size": 10, "style": "normal", "weight": "bold"})
 
-            self.add_info_text(
-                axis=axs,
-                fig=fig,
-                key=mc_channel.name,
-            )
+            if isinstance(data_mc_comparison, DataMCComparisonOutput):
+                self.add_info_text(
+                    axis=main_ax,
+                    fig=fig,
+                    key=mc_channel.name,
+                    gof=data_mc_comparison,
+                )
+            else:
+                self.add_info_text(axis=main_ax, fig=fig, key=mc_channel.name)
 
             if output_dir_path is not None:
                 assert output_name_tag is not None
@@ -472,17 +524,46 @@ class FitResultPlotter(FitPlotterBase):
 
         return output_lists
 
+    def add_info_text(
+        self,
+        axis: AxesType,
+        fig: FigureType,
+        key: Optional[str] = None,
+        gof: DataMCComparisonOutputType = None,
+    ) -> None:
+        additional_info_str = self._get_optional_argument_value(
+            argument_name="additional_info_str",
+            default_value=None,
+        )
+        if gof is not None:
+            if additional_info_str is None:
+                self._optional_arguments_dict["additional_info_str"] = fr"$\chi^2 / {gof.ndf} = {gof.chi2 / gof.ndf:.2f}$"
+            elif isinstance(additional_info_str, dict):
+                self._optional_arguments_dict["additional_info_str"] = (
+                    additional_info_str[key] + "\n" + fr"$\chi^2 / {gof.ndf} = {gof.chi2 / gof.ndf:.2f}$"
+                )
+            else:
+                self._optional_arguments_dict["additional_info_str"] = (
+                    additional_info_str + "\n" + fr"$\chi^2 / {gof.ndf} = {gof.chi2 / gof.ndf:.2f}$"
+                )
+
+        super().add_info_text(axis, fig, key)
+
+        # Resetting everything again
+        if additional_info_str is None:
+            del self._optional_arguments_dict["additional_info_str"]
+        else:
+            self._optional_arguments_dict["additional_info_str"] = additional_info_str
+
 
 @dataclass
 class NuisanceResultPerTemplate:
-
     label: str
     bin_counts: np.ndarray
     bin_errors: np.ndarray
     color: str
 
     def __post_init__(self):
-
         if len(self.bin_counts) != len(self.bin_errors):
             raise TypeError(
                 f"Bin counts (length {len(self.bin_counts)}) "
@@ -606,7 +687,7 @@ class BinNuisancePullPlotter:
 
         elif self._plot_size is not None:
             if separate_plots_for_components:
-                return (self._plot_size[0], self._plot_size[1] * number_of_templates)
+                return self._plot_size[0], self._plot_size[1] * number_of_templates
             else:
                 return self._plot_size
 
@@ -650,7 +731,6 @@ class BinNuisancePullPlotter:
                 )
 
                 for template in mc_channel.templates_in_plot_order:
-
                     plot.add_component(
                         label=template.latex_label,
                         bin_counts=np.array([i.value for i in template.bin_nuisance_parameters]),
@@ -664,7 +744,11 @@ class BinNuisancePullPlotter:
 
                 fig, axs = plt.subplots(nrows=mc_channel.total_number_of_templates, ncols=1, figsize=fig_size)
 
+                if mc_channel.total_number_of_templates == 1:
+                    axs = [axs]
+
                 for ax, template in zip(axs, mc_channel.templates_in_plot_order):
+                    individual_fig, individual_ax = plt.subplots(nrows=1, ncols=1, figsize=self._plot_size, dpi=200)
                     plot = self._plotter_class(
                         binning=mc_channel.binning, hist_variable=self.variables_by_channel[mc_channel.name]
                     )
@@ -675,6 +759,18 @@ class BinNuisancePullPlotter:
                         color=template.color,
                     )
                     plot.plot_on(ax=ax)
+
+                    plot.plot_on(individual_ax)
+                    if output_dir_path is not None:
+                        assert output_name_tag is not None
+
+                        filename = f"bin_nuisance_plot_{output_name_tag}_{mc_channel.name}_{template.name}"
+                        if use_initial_values:
+                            filename += "_with_initial_values"
+
+                        export(fig=individual_fig, filename=filename, target_dir=output_dir_path, close_figure=True)
+                        output_lists["pdf"].append(os.path.join(output_dir_path, f"{filename}.pdf"))
+                        output_lists["png"].append(os.path.join(output_dir_path, f"{filename}.png"))
 
             if output_dir_path is not None:
                 assert output_name_tag is not None
