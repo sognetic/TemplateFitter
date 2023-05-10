@@ -247,6 +247,8 @@ class TemplateFitter:
                 minimizer.set_param_fixed(param_id=nui_param_id)
         for fix_param_id in self._fixed_parameters:
             minimizer.set_param_fixed(fix_param_id)
+        for param_id_or_str, bounds in self._bound_parameters.items():
+            minimizer.set_param_bounds(param_id=param_id_or_str, bounds=bounds)
 
         if reuse_last_fit_result and self._last_fit_result is not None:
             result = self._last_fit_result
@@ -277,7 +279,12 @@ class TemplateFitter:
                     )
                 )
         else:
-            profile_values = np.array([self._profile_helper(argset) for argset in args])
+            profile_values = []
+            for evalpoint, argset in enumerate(args):
+                print(f"Evaluating point {evalpoint} out of {num_points}.")
+                profile_values.append(self._profile_helper(argset))
+
+            profile_values = np.array(profile_values)
 
         if subtract_min:
             profile_values -= minimum
@@ -326,10 +333,10 @@ class TemplateFitter:
             minimizer.set_param_fixed(param_id=fix_param_id)
 
         try:
-            loop_result = minimizer.minimize(initial_param_values=initial_values, get_hesse=False)
+            loop_result = minimizer.minimize(initial_param_values=initial_values, get_hesse=True)
         except RuntimeError as e:
             logging.info(e)
-            logging.info(f"Minimization with point {point} was not successful, trying again.")
+            logging.info(f"Minimization with point {point} was not successful, trying next point.")
             return np.nan
 
         return loop_result.fcn_min_val

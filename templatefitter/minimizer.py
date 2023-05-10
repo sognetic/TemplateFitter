@@ -534,7 +534,7 @@ class IMinuitMinimizer(AbstractMinimizer):
         self,
         initial_param_values: np.ndarray,
         verbose: bool = False,
-        error_def: float = 0.5,
+        error_def: float = Minuit.LIKELIHOOD,
     ):
 
         self._minuit_obj = Minuit(

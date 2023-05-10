@@ -573,10 +573,10 @@ class FitModel:
                 initial_yield_dict = dict(zip(names, yield_values))
                 initial_constraint_value = func(initial_yield_dict)
 
-                constraint_plausible = (value - 0.1 * sigma) < initial_constraint_value < (value + 0.1 * sigma)
+                constraint_plausible = (value - 0.01 * sigma) < initial_constraint_value < (value + 0.01 * sigma)
                 constraint_plausible_text = (
                     f"The value of the constraint ({initial_constraint_value}) with initial "
-                    f"parameters {initial_yield_dict} is more than 0.1 sigma away from the"
+                    f"parameters {initial_yield_dict} is more than 0.01 sigma away from the"
                     f" value to constrain to ({value})."
                 )
 
@@ -1989,7 +1989,9 @@ class FitModel:
                 normed_templates,
             )
         else:
-            bin_count = np.einsum("ij, ijk -> ik", (yield_parameters * normed_efficiency_parameters), normed_templates)
+            bin_count = np.einsum(
+                "ij, ijk -> ik", (yield_parameters * normed_efficiency_parameters), normed_templates, optimize="optimal"
+            )
 
         if not self._is_checked:
             check_bin_count_shape(
@@ -2025,7 +2027,7 @@ class FitModel:
             self._gauss_term_checked = True
 
         return (
-            bin_nuisance_parameter_vector @ self.inverse_template_bin_correlation_matrix @ bin_nuisance_parameter_vector
+            bin_nuisance_parameter_vector @ self._inverse_template_bin_correlation_matrix @ bin_nuisance_parameter_vector
         )
 
     def _constraint_term(
@@ -2221,7 +2223,7 @@ class FitModel:
         if not self._ready_for_pickling:
             self._params.prepare_all_constraints_for_pickling()
             self._ready_for_pickling = True
-            self._template_manager.wipe_base_data()
+        self._template_manager.wipe_base_data()
 
     def restore_model_after_pickling(self):
         self._params.restore_all_constraints_after_pickling()
