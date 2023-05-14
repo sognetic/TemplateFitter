@@ -5,6 +5,7 @@
 This is a basic example of a template fit with two templates in a single fit dimension and channel.
 """
 
+import pickle
 import numpy as np
 import pandas as pd
 from templatefitter.fit_model.model_builder import FitModel
@@ -154,6 +155,11 @@ def run_basic_example():
 
     # Lastly we'll finalize the model. This finalized model could now be saved with Python's pickle serializer.
     model.finalize_model()
+
+    model.prepare_model_for_pickling()
+    with open("model_with_constraint.pickle", "wb") as pklf:
+        pickle.dump(model, pklf)
+    model.restore_model_after_pickling()
 
     # Now that we're done creating the model, we can see how data and MC agreed before the fit. Agreement should be perfect
     # in a fit to Asimov data.
