@@ -281,7 +281,7 @@ class TemplateFitter:
         else:
             profile_values = []
             for evalpoint, argset in enumerate(args):
-                print(f"Evaluating point {evalpoint} out of {num_points}.")
+                logging.info(f"Evaluating point {evalpoint} out of {num_points}.")
                 profile_values.append(self._profile_helper(argset))
 
             profile_values = np.array(profile_values)

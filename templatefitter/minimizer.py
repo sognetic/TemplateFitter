@@ -570,6 +570,7 @@ class IMinuitMinimizer(AbstractMinimizer):
 
         m = self._minuit_obj  # type: Minuit
 
+        success = False
         for attempt in range(1, 5):
             # perform minimization at least twice!
             fmin = m.migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
@@ -596,7 +597,7 @@ class IMinuitMinimizer(AbstractMinimizer):
         self._params.values = np.array(m.values)
         self._params.errors = np.array(m.errors)
 
-        if fmin.has_covariance:
+        if fmin.has_covariance and m.covariance is not None and get_hesse:
             fixed_params = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
             self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
             self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
