@@ -333,7 +333,7 @@ class TemplateFitter:
             minimizer.set_param_fixed(param_id=fix_param_id)
 
         try:
-            loop_result = minimizer.minimize(initial_param_values=initial_values, get_hesse=True)
+            loop_result = minimizer.minimize(initial_param_values=initial_values, get_hesse=False)
         except RuntimeError as e:
             logging.info(e)
             logging.info(f"Minimization with point {point} was not successful, trying next point.")
