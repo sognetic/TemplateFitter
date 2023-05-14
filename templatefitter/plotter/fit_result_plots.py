@@ -99,7 +99,7 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
         legend_loc: Optional[Union[int, str]] = None,
         markers_with_width: bool = True,
         plot_outlier_indicators: bool = True,
-        y_scale: float = 1.1,
+        y_scale: float = 1.3,
         **kwargs,
     ) -> DataMCComparisonOutputType:
 
