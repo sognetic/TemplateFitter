@@ -252,6 +252,7 @@ class FitModel:
         template: Template,
         yield_parameter: Union[ModelParameter, str],
         use_other_systematics: bool = True,
+        use_floating_bin_nuisance_parameters: bool = True,
     ) -> int:
         self._check_is_not_finalized()
         self._check_has_data(adding="template")
@@ -287,7 +288,9 @@ class FitModel:
 
         yield_model_parameter.used_by(template_parameter=yield_param, template_serial_number=template.serial_number)
 
-        bin_nuisance_paras = self._create_bin_nuisance_parameters(template=template)
+        bin_nuisance_paras = self._create_bin_nuisance_parameters(
+            template=template, floating=use_floating_bin_nuisance_parameters
+        )
         assert len(bin_nuisance_paras) == template.num_bins_total, (len(bin_nuisance_paras), template.num_bins_total)
 
         template.initialize_parameters(
@@ -1222,6 +1225,7 @@ class FitModel:
     def _create_bin_nuisance_parameters(
         self,
         template: Template,
+        floating: bool = True,
     ) -> List[TemplateParameter]:
         bin_nuisance_model_params = []  # type: List[Union[ModelParameter, str]]
         bin_nuisance_model_param_indices = []  # type: List[int]
@@ -1236,7 +1240,7 @@ class FitModel:
             model_param_index, model_parameter = self.add_model_parameter(
                 name=f"bin_nuisance_param_{counter}_for_temp_{template.name}",
                 parameter_type=ParameterHandler.bin_nuisance_parameter_type,
-                floating=True,
+                floating=floating,
                 initial_value=initial_nuisance_value,
             )
             bin_nuisance_model_params.append(model_parameter)
