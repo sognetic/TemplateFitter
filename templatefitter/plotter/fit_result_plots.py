@@ -112,6 +112,11 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
         mc_bin_counts = self._histograms[self.mc_key].get_bin_counts()
 
         mc_sum_bin_count = np.sum(np.array(mc_bin_counts), axis=0)
+        neg_hist_index = [i for i, mc_bc in enumerate(mc_bin_counts) if any(mc_bc < 0)]
+        mc_pos_sum_bin_count = np.sum(
+            np.array([mc_bin_counts[i] for i in range(len(mc_bin_counts)) if i not in neg_hist_index]), axis=0
+        )
+
         mc_sum_bin_error_sq = self._histograms[self.mc_key].get_statistical_uncertainty_per_bin()
 
         bar_bottom = mc_sum_bin_count - np.sqrt(mc_sum_bin_error_sq)
@@ -121,16 +126,38 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
 
         if style.lower() == "stacked":
             ax1.hist(
-                x=[self.bin_mids for _ in range(self._histograms[self.mc_key].number_of_components)],
+                x=[self.bin_mids for i in range(self._histograms[self.mc_key].number_of_components)
+                   if i not in neg_hist_index],
                 bins=self.bin_edges,
-                weights=mc_bin_counts,
+                weights=[mc_bin_counts[i] for i in range(len(mc_bin_counts)) if i not in neg_hist_index],
                 stacked=True,
                 edgecolor="black",
                 lw=0.3,
-                color=self._histograms[self.mc_key].colors,
-                label=self._histograms[self.mc_key].labels,  # type: ignore  # The type here is correct!
+                bottom=mc_sum_bin_count - mc_pos_sum_bin_count,
+                color=[l for i,l in enumerate(self._histograms[self.mc_key].colors) if i not in neg_hist_index] ,  # type: ignore  # The type here is correct!
+                label=[l for i,l in enumerate(self._histograms[self.mc_key].labels) if i not in neg_hist_index] ,  # type: ignore  # The type here is correct!
                 histtype="stepfilled",
             )
+
+            if len(neg_hist_index):
+                nhatch = r'xx'
+                for nhi in neg_hist_index:
+                    n, b = np.histogram(
+                        a=self.bin_mids,
+                        bins=self.bin_edges,
+                        weights=mc_bin_counts[nhi])
+                    ax1.bar(
+                        x=self.bin_mids,
+                        height=abs(n),
+                        width=self.bin_widths,
+                        bottom=mc_sum_bin_count - mc_pos_sum_bin_count,
+                        color=self._histograms[self.mc_key].colors[nhi],
+                        edgecolor=self._histograms[self.mc_key].colors[nhi],
+                        hatch=nhatch,
+                        label=self._histograms[self.mc_key].labels[nhi],
+                        fill=False,
+                        lw=1
+                    )
 
             ax1.bar(
                 x=self.bin_mids,
@@ -220,12 +247,13 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
             plot_outlier_indicators=plot_outlier_indicators,
         )
 
-        ax1.set_ylim(bottom=0.0, top=None)
         ax1.set_ylabel(self._get_y_label(normed=False), plot_style.ylabel_pos)
         ax1.set_xlabel(self._variable.x_label, plot_style.xlabel_pos)
 
         ax1.set_xlim(self.bin_edges[0], self.bin_edges[-1])
         ax2.set_xlim(self.bin_edges[0], self.bin_edges[-1])
+
+        ax1.set_ylim(bottom=np.ceil(min(mc_sum_bin_count - mc_pos_sum_bin_count)/10)*10)
 
         return comparison_output
 
