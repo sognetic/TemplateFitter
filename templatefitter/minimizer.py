@@ -578,14 +578,12 @@ class IMinuitMinimizer(AbstractMinimizer):
         m = self._minuit_obj  # type: Minuit
 
         success = False
-        for attempt in range(1, 5):
+        for attempt in range(1, 3):
             # perform minimization at least twice!
-            fmin = m.migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
+            fmin = m.migrad(ncall=800_000 * attempt, iterate=2 + attempt).fmin
             if get_hesse:
                 m.hesse()
-                success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
-            else:
-                success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance
+            success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance
 
             if success or not check_success:
                 if attempt > 1:
@@ -597,17 +595,26 @@ class IMinuitMinimizer(AbstractMinimizer):
                     f"fmin.is_valid={fmin.is_valid} "
                     f"and fmin.has_valid_parameters={fmin.has_valid_parameters} "
                     f"and fmin.has_covariance={fmin.has_covariance} "
-                    f"and fmin.has_accurate_covar={fmin.has_accurate_covar}"
+                    f"and fmin.has_accurate_covar={fmin.has_accurate_covar} "
+                    f"and fmin.has_posdef_covar: {fmin.has_posdef_covar}\n"
                 )
 
         self._fcn_min_val = m.fval
         self._params.values = np.array(m.values)
         self._params.errors = np.array(m.errors)
 
-        if fmin.has_covariance and m.covariance is not None and get_hesse:
-            fixed_params = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
-            self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
-            self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
+        if get_hesse:
+            if fmin.has_covariance and fmin.has_accurate_covar and m.covariance is not None:
+                fixed_params = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
+                self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
+                self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
+            else:
+                logging.warning("Careful, no accurate covariance could be established. Re-calculating with NDT!")
+                hesse = ndt.Hessian(self._fcn)(m.values)
+                self._params.covariance = np.linalg.inv(hesse)
+                self._params.correlation = cov2corr(self._params.covariance)
+                self._params.errors = np.sqrt(np.diag(self._params.covariance))
+                success = bool(success and np.all(np.linalg.eigvals(self._params.covariance) > 0))
 
         self._success = success
 
@@ -615,7 +622,8 @@ class IMinuitMinimizer(AbstractMinimizer):
             f"valid minimum: {fmin.is_valid}\n"
             f"valid parameters: {fmin.has_valid_parameters}\n"
             f"covariance exists: {fmin.has_covariance}\n"
-            f"covariance is accurate: {fmin.has_accurate_covar}\n"
+            f"covariance is positive definite (from MINUIT): {fmin.has_posdef_covar}\n"
+            f"covariance is positive definite (from Numpy): {np.all(np.linalg.eigvals(self._params.covariance) > 0)}\n"
         )
 
         if check_success and not self._success:
