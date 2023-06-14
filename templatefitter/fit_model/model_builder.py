@@ -156,6 +156,10 @@ class FitModel:
             number_of_channels=self.number_of_channels, max_number_of_model_bins=self.max_number_of_bins_flattened
         )
 
+    @property
+    def data_bin_count_matrix(self):
+        return self._data_channels.get_data_bin_count_matrix()
+
     @immutable_cached_property
     def max_number_of_bins_flattened(self) -> int:
         return self._channels.max_number_of_bins_flattened
