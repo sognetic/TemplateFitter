@@ -544,7 +544,7 @@ class IMinuitMinimizer(AbstractMinimizer):
         )
 
         self._minuit_obj.strategy = 2
-        self._minuit_obj.errors = 0.05 * initial_param_values
+        self._minuit_obj.errors = 0.05 * initial_param_values + 1.0
         self._minuit_obj.errordef = error_def
         self._minuit_obj.limits = self._param_bounds
 
