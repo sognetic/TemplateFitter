@@ -793,6 +793,7 @@ class FitModel:
         self,
         scaling_dict: Dict[Union[Template, str], float],
         round_bin_counts: bool = False,
+        as_toys: bool = False,
     ) -> None:
         """Useful to test linearity of the fit."""
 
@@ -826,9 +827,14 @@ class FitModel:
 
             logging.debug(f"Synthetic data sum: {np.sum(channel_data)}")
 
+            if as_toys:
+                fake_data = scipy_stats.poisson.rvs(channel_data, random_state=self._random_state)
+            else:
+                fake_data = channel_data
+
             self._data_channels.add_channel(
                 channel_name=channel.name,
-                channel_data=np.ceil(channel_data) if round_bin_counts else channel_data,
+                channel_data=np.ceil(fake_data) if round_bin_counts else fake_data,
                 from_data=False,
                 binning=channel.binning,
                 column_names=channel.data_column_names,

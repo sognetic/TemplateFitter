@@ -578,17 +578,18 @@ class IMinuitMinimizer(AbstractMinimizer):
         m = self._minuit_obj  # type: Minuit
 
         success = False
-        for attempt in range(1, 5):
+        for attempt in range(1, 4):
             # perform minimization at least twice!
-            fmin = m.migrad(ncall=800_000 * attempt, iterate=2 + attempt).fmin
+            fmin = m.simplex().migrad(ncall=800_000 * attempt, iterate=2 + attempt).fmin
             if get_hesse:
                 m.hesse()
 
-            if attempt < 4 and get_hesse:
+            if attempt < 3 and get_hesse:
                 success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
             else:
                 success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance
-                logging.warning("Dropping requirement for accurate covariance from minimum and catching up with NDT.")
+                if get_hesse:
+                    logging.warning("Dropping requirement for accurate covariance from minimum and catching up with NDT.")
 
             if success or not check_success:
                 if attempt > 1:
