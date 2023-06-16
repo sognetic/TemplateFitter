@@ -63,6 +63,8 @@ class MinimizerParameters:
 
         self._values = np.zeros(self._number_of_params)
         self._errors = np.zeros(self._number_of_params)
+        self._up_errors = np.zeros(self._number_of_params)
+        self._dn_errors = np.zeros(self._number_of_params)
         self._covariance = np.zeros((self._number_of_params, self._number_of_params))
         self._correlation = np.zeros((self._number_of_params, self._number_of_params))
 
@@ -106,6 +108,22 @@ class MinimizerParameters:
         """
         param_index = self.param_id_to_index(param_id=param_id)
         return self.errors[param_index]
+
+    def get_asym_param_errors(self, param_id: Union[int, str, np.integer]) -> Tuple[float, float]:
+        """
+        Returns error of parameter specified by `param_id`.
+
+        Parameters
+        ----------
+        param_id : int or str
+            Name or index in list of names of wanted parameter
+
+        Returns
+        -------
+        float
+        """
+        param_index = self.param_id_to_index(param_id=param_id)
+        return tuple(self.asym_errors[param_index])
 
     def __getitem__(
         self,
@@ -213,6 +231,31 @@ class MinimizerParameters:
         self._errors = new_errors
 
     @property
+    def asym_errors(self) -> np.ndarray:
+        """np.ndarray: Parameter errors. Shape is (`num_params`, 2)."""
+        return np.stack([self._up_errors, self._dn_errors]).T
+
+    @asym_errors.setter
+    def asym_errors(
+        self,
+        new_errors: np.ndarray,
+    ) -> None:
+        if not len(new_errors) == self.num_params:
+            raise ValueError("Number of parameter errors must be equal to number of parameters")
+        if not len(new_errors[0]) == 2:
+            raise ValueError(
+                "Please give two values for each parameter," " one for the up-variation and one for the down-variation"
+            )
+        self._up_errors = new_errors[:, 0]
+        self._dn_errors = new_errors[:, 1]
+
+    def add_asymmetric_error(self, param_id: Union[int, str, np.integer], new_up_error: float, new_down_error: float):
+
+        param_index = self.param_id_to_index(param_id=param_id)
+        self._up_errors[param_index] = new_up_error
+        self._dn_errors[param_index] = new_down_error
+
+    @property
     def covariance(self) -> np.ndarray:
         """ np.ndarray: Parameter covariance matrix. Shape is (`num_params`, `num_params`)."""
         return self._covariance
@@ -260,6 +303,7 @@ class MinimizerParameters:
             "fixed_params": "fixed_parameters_map",
             "values": "parameter_values",
             "errors": "parameter_errors",
+            "asym_errors": "asymmetric_parameter_errors",
             "covariance": "covariance_matrix",
             "correlation": "correlation_matrix",
         }
@@ -275,6 +319,7 @@ class MinimizerParameters:
             dict_key_map["fixed_params"]: self.fixed_params,
             dict_key_map["values"]: self.values.tolist(),
             dict_key_map["errors"]: self.errors.tolist(),
+            dict_key_map["asym_errors"]: self.asym_errors.tolist(),
             dict_key_map["covariance"]: self.covariance.tolist(),
             dict_key_map["correlation"]: self.correlation.tolist(),
         }
@@ -301,6 +346,8 @@ class MinimizerParameters:
         instance.values = np.array(dictionary[km["values"]])
         assert len(dictionary[km["errors"]]) == dictionary[km["num_params"]]
         instance.errors = np.array(dictionary[km["errors"]])
+
+        instance.asym_errors = np.array(dictionary[km["asym_errors"]])
 
         assert len(dictionary[km["covariance"]]) == dictionary[km["num_params_not_fixed"]]
         assert all(isinstance(cov_row, list) for cov_row in dictionary[km["covariance"]])
@@ -417,6 +464,7 @@ class AbstractMinimizer(ABC):
         additional_args: Optional[Tuple[Any, ...]] = None,
         get_hesse: bool = True,
         check_success: bool = True,
+        profile_parameter: Optional[str] = None,
     ) -> MinimizeResult:
         pass
 
@@ -560,6 +608,7 @@ class IMinuitMinimizer(AbstractMinimizer):
         error_def: float = Minuit.LIKELIHOOD,
         additional_args: Optional[Tuple[Any, ...]] = None,
         get_hesse: bool = True,
+        profile_parameter: Optional[str] = None,
         check_success: bool = True,
     ) -> MinimizeResult:
 
@@ -575,21 +624,27 @@ class IMinuitMinimizer(AbstractMinimizer):
         else:
             self.reset(initial_param_values=initial_param_values)
 
-        m = self._minuit_obj  # type: Minuit
-
         success = False
         for attempt in range(1, 4):
             # perform minimization at least twice!
-            fmin = m.simplex().migrad(ncall=800_000 * attempt, iterate=2 + attempt).fmin
-            if get_hesse:
-                m.hesse()
+            if additional_args.get("simplex"):
+                logging.warning("Using simplex before migrad!")
+                fmin = self._minuit_obj.simplex().migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
+            else:
+                fmin = self._minuit_obj.migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
 
-            if attempt < 3 and get_hesse:
-                success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance and fmin.has_accurate_covar
+            self._minuit_obj.hesse()
+
+            if get_hesse and attempt < 2:
+                success = (
+                    fmin.is_valid
+                    and fmin.has_valid_parameters
+                    and fmin.has_covariance
+                    and fmin.has_accurate_covar
+                    and fmin.has_posdef_covar
+                )
             else:
                 success = fmin.is_valid and fmin.has_valid_parameters and fmin.has_covariance
-                if get_hesse:
-                    logging.warning("Dropping requirement for accurate covariance from minimum and catching up with NDT.")
 
             if success or not check_success:
                 if attempt > 1:
@@ -604,26 +659,55 @@ class IMinuitMinimizer(AbstractMinimizer):
                     f"and fmin.has_accurate_covar={fmin.has_accurate_covar} "
                     f"and fmin.has_posdef_covar: {fmin.has_posdef_covar}\n"
                 )
+        else:
+            if check_success and not success:
+                raise RuntimeError(f"Minimization was not successful.\n" f"{fmin}")
 
-        self._fcn_min_val = m.fval
-        self._params.values = np.array(m.values)
-        self._params.errors = np.array(m.errors)
-
+        self._fcn_min_val = self._minuit_obj.fval
+        self._params.values = np.array(self._minuit_obj.values)
+        self._params.errors = np.array(self._minuit_obj.errors)
         if get_hesse:
-            if fmin.has_covariance and fmin.has_accurate_covar and m.covariance is not None:
+            if fmin.has_covariance and fmin.has_accurate_covar and self._minuit_obj.covariance is not None:
                 fixed_params = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
-                self._params.covariance = np.array(m.covariance)[fixed_params, :][:, fixed_params]
-                self._params.correlation = np.array(m.covariance.correlation())[fixed_params, :][:, fixed_params]
+                self._params.covariance = np.array(self._minuit_obj.covariance)[fixed_params, :][:, fixed_params]
+                self._params.correlation = np.array(self._minuit_obj.covariance.correlation())[fixed_params, :][
+                    :, fixed_params
+                ]
             else:
-                logging.warning("Careful, no accurate covariance could be established. Re-calculating with NDT!")
-                hesse = ndt.Hessian(self._fcn)(m.values)
+                logging.warning(f"Calculating the uncertainties again with numdifftools.")
+                floating_parameter_mask = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
+
+                def fixed_wrapper(floating_parameters: np.ndarray):
+                    values = np.array(self._minuit_obj.values)
+                    values[list(floating_parameter_mask)] = floating_parameters
+                    return self._fcn(values)
+
+                floating_params = np.array(self._minuit_obj.values)[list(floating_parameter_mask)]
+                hesse = ndt.Hessian(fixed_wrapper)(floating_params)
                 try:
                     self._params.covariance = np.linalg.inv(hesse)
                 except np.linalg.LinAlgError:
                     raise RuntimeError("Singular Hesse matrix from NumDiffTools.")
                 self._params.correlation = cov2corr(self._params.covariance)
-                self._params.errors = np.sqrt(np.diag(self._params.covariance))
+                errors = np.array(self._params.errors)
+                errors[list(floating_parameter_mask)] = np.sqrt(np.diag(self._params.covariance))
+                self._params.errors = errors
                 success = bool(success and np.all(np.linalg.eigvals(self._params.covariance) > 0))
+
+        if profile_parameter is not None:
+            if isinstance(profile_parameter, str):
+                profile_parameter = [profile_parameter]
+
+            logging.warning(f"Profiling {len(profile_parameter)} parameters. This might take a while.")
+            self._minuit_obj.minos(*profile_parameter)
+            success = fmin.is_valid and all([self._minuit_obj.merrors[param].is_valid for param in profile_parameter])
+
+            for param in profile_parameter:
+                self._params.add_asymmetric_error(
+                    param_id=param,
+                    new_up_error=self._minuit_obj.merrors[param].upper,
+                    new_down_error=self._minuit_obj.merrors[param].lower,
+                )
 
         self._success = success
 
@@ -639,7 +723,7 @@ class IMinuitMinimizer(AbstractMinimizer):
             raise RuntimeError(f"Minimization was not successful.\n" f"{fmin}\n" + success_text)
 
         assert self._success is not None
-        return MinimizeResult(fcn_min_val=m.fval, params=self._params, success=self._success)
+        return MinimizeResult(fcn_min_val=self._minuit_obj.fval, params=self._params, success=self._success)
 
     def _get_fixed_params(self) -> List[bool]:
         return self.params.fixed_params

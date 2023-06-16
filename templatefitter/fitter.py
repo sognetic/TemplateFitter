@@ -60,6 +60,10 @@ class TemplateFitter:
         self._fixed_parameters = list()  # type: List[Union[str, int]]
         self._bound_parameters = dict()  # type: Dict[Union[str, int], BoundType]
 
+    @property
+    def bound_parameters(self):
+        return list(self._bound_parameters.keys())
+
     def do_fit(
         self,
         update_templates: bool = True,
@@ -67,6 +71,8 @@ class TemplateFitter:
         verbose: bool = True,
         fix_nui_params: bool = False,
         parameters_to_fix: Optional[Sequence[Union[str, int]]] = None,
+        use_simplex: bool = False,
+        profile_parameter: Optional[str] = None,
     ) -> MinimizeResult:
         """
         Performs maximum likelihood fit by minimizing the provided negative log likelihood function.
@@ -120,6 +126,8 @@ class TemplateFitter:
             initial_param_values=self._nll.x0,
             verbose=verbose,
             get_hesse=get_hesse,
+            profile_parameter=profile_parameter,
+            additional_args={"simplex": use_simplex},
         )
 
         if update_templates:
