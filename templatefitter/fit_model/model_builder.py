@@ -5,7 +5,6 @@ Class which defines the fit model by combining templates and handles the computa
 import copy
 import logging
 import operator
-from collections import defaultdict
 
 import numpy as np
 import scipy.stats as scipy_stats
@@ -98,6 +97,7 @@ class FitModel:
         )  # type: FractionManager
 
         self._inverse_template_bin_correlation_matrix = None  # type: Optional[np.ndarray]
+        self._template_bin_correlation_matrix = None  # type: Optional[np.ndarray]
         self._systematics_covariance_matrices_per_channel = None  # type: Optional[List[np.ndarray]]
 
         self._has_data = False  # type: bool
@@ -849,20 +849,47 @@ class FitModel:
 
     def add_toy_data_from_templates(
         self,
-        round_bin_counts: bool = True,
-    ) -> Dict:
+        with_nuisance_fluctuations: bool = False,
+    ) -> None:
         if self._original_data_channels is None and self._data_channels is not None:
             # Backing up original data_channels
             self._original_data_channels = self._data_channels
 
-        self._data_channels = ModelDataChannels()
-        channel_template_toys = defaultdict(dict)
+        if with_nuisance_fluctuations and not self.is_finalized:
+            raise RuntimeError("Finalize the model first before drawing values from the nuisance parameters.")
 
-        for channel in self._channels:
+        self._data_channels = ModelDataChannels()
+
+        if with_nuisance_fluctuations:
+            nui_param_vector, nui_param_matrix = self.get_nuisance_parameters(
+                self._params.get_initial_values_of_floating_parameters()
+            )
+            nui_variation_vector = self._random_state.multivariate_normal(
+                mean=np.zeros_like(nui_param_vector), cov=self._template_bin_correlation_matrix
+            )
+            varied_normed_templates = self.get_templates(
+                nuisance_parameters=np.reshape(nui_variation_vector, newshape=self._nuisance_matrix_shape)
+            )
+
+        for channel_no, channel in enumerate(self._channels):
             channel_data = None  # type: Optional[np.ndarray]
-            for template in channel.templates:
-                template_toy = scipy_stats.poisson.rvs(template.bin_counts, random_state=self._random_state)
-                channel_template_toys[channel.name][template.name] = template_toy.tolist()
+            for templateno, template in enumerate(channel.templates):
+
+                if with_nuisance_fluctuations:
+                    varied_bin_counts = np.reshape(
+                        (
+                            varied_normed_templates[channel_no][templateno]
+                            * template.yield_parameter.initial_value
+                            * template.efficiency_parameter.initial_value
+                        ),
+                        newshape=template.num_bins,
+                    )
+                    assert (
+                        varied_bin_counts.shape == template.bin_counts.shape
+                    ), f"Shapes differ: {varied_bin_counts.shape}, {template.bin_counts.shape}"
+                    template_toy = varied_bin_counts
+                else:
+                    template_toy = template.bin_counts
 
                 if channel_data is None:
                     channel_data = copy.copy(template_toy)
@@ -875,7 +902,9 @@ class FitModel:
 
             self._data_channels.add_channel(
                 channel_name=channel.name,
-                channel_data=channel_data,
+                channel_data=scipy_stats.poisson.rvs(
+                    np.clip(a=channel_data, a_min=0, a_max=None), random_state=self._random_state
+                ),
                 from_data=False,
                 binning=channel.binning,
                 column_names=channel.data_column_names,
@@ -887,8 +916,6 @@ class FitModel:
         self._data_channels._data_bin_counts = None
 
         self._has_data = True
-
-        return channel_template_toys
 
     # endregion
 
@@ -1159,6 +1186,11 @@ class FitModel:
             for cov_matrix in cov_matrices_per_temp
         ]
         self._inverse_template_bin_correlation_matrix = block_diag(*inv_corr_matrices)
+
+        corr_matrices = [
+            cov2corr(cov_matrix) for cov_matrices_per_temp in cov_matrices_per_ch for cov_matrix in cov_matrices_per_temp
+        ]
+        self._template_bin_correlation_matrix = block_diag(*corr_matrices)
 
         # Option 1a:
         # inv_corr_matrices = [np.linalg.inv(cov2corr(cov_matrix)) for cov_matrix in cov_matrices_per_ch]

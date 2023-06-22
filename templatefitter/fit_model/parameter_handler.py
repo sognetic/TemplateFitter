@@ -374,7 +374,7 @@ class ParameterHandler:
         ncall: Optional[int] = None,
     ) -> np.ndarray:
 
-        if ncall == self.combined_parameters_cache[0]:
+        if ncall == self.combined_parameters_cache[0] and self.combined_parameters_cache[1] is not None:
             return self.combined_parameters_cache[1]
         else:
             zero_array = np.zeros(len(self.floating_parameter_mask))

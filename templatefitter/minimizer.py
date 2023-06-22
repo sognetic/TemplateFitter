@@ -638,6 +638,7 @@ class IMinuitMinimizer(AbstractMinimizer):
                 fmin = self._minuit_obj.migrad(ncall=800_000 * attempt, iterate=2 + attempt).fmin
 
             self._minuit_obj.hesse()
+            logging.info(fmin)
 
             if get_hesse and attempt < 2:
                 success = (
@@ -679,7 +680,7 @@ class IMinuitMinimizer(AbstractMinimizer):
                     :, fixed_params
                 ]
             else:
-                logging.warning("Calculating the uncertainties again with numdifftools.")
+                logging.warning("Covariance inadequate. Calculating the uncertainties again with numdifftools.")
                 floating_parameter_mask = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
 
                 def fixed_wrapper(floating_parameters: np.ndarray):
@@ -709,8 +710,8 @@ class IMinuitMinimizer(AbstractMinimizer):
             success = fmin.is_valid and all([self._minuit_obj.merrors[param].is_valid for param in profile_parameter])
             if success:
                 for param in profile_parameter:
-                    logging.warning("Success!")
-                    logging.warning(self._minuit_obj.merrors[param])
+                    logging.info("Success!")
+                    logging.info(self._minuit_obj.merrors[param])
                     self._params.add_asymmetric_error(
                         param_id=param,
                         new_up_error=self._minuit_obj.merrors[param].upper,
