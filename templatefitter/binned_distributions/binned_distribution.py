@@ -368,6 +368,7 @@ class BinnedDistributionFromData(BinnedDistribution):
         weights: WeightsInputType = None,
         systematics: SystematicsInputType = None,
         data_column_names: DataColumnNamesInput = None,
+        ignore_correlations_for: Optional[List[str]] = None,
     ) -> None:
         super().__init__(
             bins=bins,
@@ -377,6 +378,11 @@ class BinnedDistributionFromData(BinnedDistribution):
             name=name,
             data_column_names=data_column_names,
         )
+        if ignore_correlations_for is not None:
+            self.ignore_correlations_for = ignore_correlations_for
+        else:
+            self.ignore_correlations_for = []
+
         if data is not None:
             self.fill(
                 input_data=data,
@@ -524,22 +530,35 @@ class BinnedDistributionFromData(BinnedDistribution):
 
         num_bins_total = self.num_bins_total
 
-        cov = np.zeros((num_bins_total, num_bins_total))
+        total_cov = np.zeros((num_bins_total, num_bins_total))
 
         for sys_info in self.systematics:
-            cov += sys_info.get_covariance_matrix(
+            if sys_info.name[0] is None:
+                name = sys_info.name[1]
+            else:
+                name = sys_info.name[0]
+
+            cov = sys_info.get_covariance_matrix(
                 data=self.base_data.data,
                 weights=self.base_data.weights,
                 binning=self.binning,
             )
+            if name in self.ignore_correlations_for:
+                logging.warning(f"Neglecting correlations for systematic {name}.")
+                cov = np.diag(np.diag(cov))
 
-        assert len(cov.shape) == 2, cov.shape
-        assert cov.shape[0] == cov.shape[1], cov.shape
-        assert cov.shape[0] == self.num_bins_total, (cov.shape[0], self.num_bins_total)
-        assert np.allclose(cov, cov.T, rtol=1e-05, atol=1e-08), cov  # Checking if covariance matrix is symmetric.
+            total_cov += cov
 
-        self._bin_covariance_matrix = cov
-        return cov
+        assert len(total_cov.shape) == 2, total_cov.shape
+        assert total_cov.shape[0] == total_cov.shape[1], total_cov.shape
+        assert total_cov.shape[0] == self.num_bins_total, (total_cov.shape[0], self.num_bins_total)
+        assert np.allclose(
+            total_cov, total_cov.T, rtol=1e-05, atol=1e-08
+        ), total_cov  # Checking if total_covariance matrix is symmetric.
+
+        self._bin_covariance_matrix = total_cov
+
+        return total_cov
 
     @property
     def bin_correlation_matrix(self) -> np.ndarray:

@@ -38,6 +38,8 @@ class SystematicsInfoItem(ABC):
         self._sys_uncert = None  # type: Optional[np.ndarray]
         self._cov_matrix = None  # type: Optional[np.ndarray]
 
+        self.name = ""
+
     @abstractmethod
     def get_covariance_matrix(
         self,
@@ -83,10 +85,7 @@ class SystematicsInfoItem(ABC):
 
 
 class SystematicsInfoItemFromCov(SystematicsInfoItem):
-    def __init__(
-        self,
-        cov_matrix: np.ndarray,
-    ) -> None:
+    def __init__(self, cov_matrix: np.ndarray, name: Optional[str] = None) -> None:
         super().__init__()
         assert isinstance(cov_matrix, np.ndarray), type(cov_matrix)
         assert len(cov_matrix.shape) == 2, cov_matrix.shape
@@ -94,6 +93,11 @@ class SystematicsInfoItemFromCov(SystematicsInfoItem):
 
         self._sys_type = "cov_matrix"  # type: str
         self._cov_matrix = cov_matrix  # type: np.ndarray
+
+        if name is not None:
+            self.name = name
+        else:
+            self.name = ""
 
     def get_covariance_matrix(
         self,
@@ -121,11 +125,7 @@ class SystematicsInfoItemFromCov(SystematicsInfoItem):
 
 
 class SystematicsInfoItemFromUpDown(SystematicsInfoItem):
-    def __init__(
-        self,
-        sys_weight: np.ndarray,
-        sys_uncert: np.ndarray,
-    ) -> None:
+    def __init__(self, sys_weight: np.ndarray, sys_uncert: np.ndarray, name: Optional[str] = None) -> None:
         super().__init__()
         assert isinstance(sys_uncert, np.ndarray), type(sys_uncert)
         assert len(sys_uncert.shape) == 1, sys_uncert.shape
@@ -134,6 +134,10 @@ class SystematicsInfoItemFromUpDown(SystematicsInfoItem):
         self._sys_type = "up_down"  # type: str
         self._sys_weight = sys_weight  # type: np.ndarray
         self._sys_uncert = sys_uncert  # type: np.ndarray
+        if name is not None:
+            self.name = name
+        else:
+            self.name = ""
 
     def get_covariance_matrix(
         self,
@@ -214,6 +218,7 @@ class SystematicsInfoItemFromAsymmetricEigenvariation(SystematicsInfoItemFromUpD
         self,
         sys_weight: np.ndarray,
         sys_uncert: np.ndarray,  # First up, then down
+        name: Optional[str] = None,
     ) -> None:
         SystematicsInfoItem.__init__(self)
         assert isinstance(sys_uncert, np.ndarray), type(sys_uncert)
@@ -223,6 +228,10 @@ class SystematicsInfoItemFromAsymmetricEigenvariation(SystematicsInfoItemFromUpD
         self._sys_type = "eigenvar_asymm"  # type: str
         self._sys_weight = sys_weight  # type: np.ndarray
         self._sys_uncert = sys_uncert  # type: np.ndarray
+        if name is not None:
+            self.name = name
+        else:
+            self.name = ""
 
     def get_varied_hist(
         self,
@@ -281,6 +290,7 @@ class SystematicsInfoItemFromVariation(SystematicsInfoItem):
         self,
         sys_weight: np.ndarray,
         sys_uncert: np.ndarray,
+        name: Optional[str] = None,
     ) -> None:
         super().__init__()
         assert isinstance(sys_uncert, np.ndarray), type(sys_uncert)
@@ -291,6 +301,10 @@ class SystematicsInfoItemFromVariation(SystematicsInfoItem):
         self._sys_type = "variation"  # type: str
         self._sys_weight = sys_weight  # type: np.ndarray
         self._sys_uncert = sys_uncert  # type: np.ndarray
+        if name is not None:
+            self.name = name
+        else:
+            self.name = ""
 
     def number_of_variations(self) -> int:
         return self._sys_uncert.shape[1]
@@ -439,7 +453,7 @@ class SystematicsInfo(Sequence):
                 sys_uncert = np.column_stack([variation for variation in variations])
                 assert sys_uncert.shape[1] == len(in_systematics[1]), (sys_uncert.shape, len(in_systematics[1]))
                 assert not np.isnan(sys_uncert).any()
-                return SystematicsInfoItemFromVariation(sys_weight=sys_weight, sys_uncert=sys_uncert)
+                return SystematicsInfoItemFromVariation(sys_weight=sys_weight, sys_uncert=sys_uncert, name=in_systematics)
 
             elif isinstance(in_systematics[1], tuple):
                 up_down_sys_uncerts = np.array([Weights.obtain_weights(s, data, in_data) for s in in_systematics[1]])
@@ -451,7 +465,9 @@ class SystematicsInfo(Sequence):
                 )
 
                 return SystematicsInfoItemFromAsymmetricEigenvariation(
-                    sys_weight=sys_weight, sys_uncert=up_down_sys_uncerts
+                    sys_weight=sys_weight,
+                    sys_uncert=up_down_sys_uncerts,
+                    name=in_systematics,
                 )
             else:
                 sys_uncert = Weights.obtain_weights(
@@ -460,7 +476,7 @@ class SystematicsInfo(Sequence):
                     data_input=in_data,
                 )
                 assert not np.isnan(sys_uncert).any()
-                return SystematicsInfoItemFromUpDown(sys_weight=sys_weight, sys_uncert=sys_uncert)
+                return SystematicsInfoItemFromUpDown(sys_weight=sys_weight, sys_uncert=sys_uncert, name=in_systematics)
         else:
             raise ValueError(
                 f"Systematics must be provided as tuple or list of tuples"

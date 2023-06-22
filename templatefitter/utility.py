@@ -75,8 +75,9 @@ def xlogyx(x, y):
 
     # TODO: Add a test of this xlogyx function to the unit tests!
     # Method 1
-    if x < 1e-100 or y < 1e-100:
+    if x < 1e-100 or y < 1e-100 or np.isnan(x) or np.isnan(y):
         return 0.0
+
     if x < y:
         res = x * np.log1p((y - x) / x)
     else:

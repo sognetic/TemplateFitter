@@ -5,6 +5,8 @@ Class which defines the fit model by combining templates and handles the computa
 import copy
 import logging
 import operator
+from collections import defaultdict
+
 import numpy as np
 import scipy.stats as scipy_stats
 
@@ -848,33 +850,32 @@ class FitModel:
     def add_toy_data_from_templates(
         self,
         round_bin_counts: bool = True,
-    ) -> None:
+    ) -> Dict:
         if self._original_data_channels is None and self._data_channels is not None:
             # Backing up original data_channels
             self._original_data_channels = self._data_channels
 
         self._data_channels = ModelDataChannels()
+        channel_template_toys = defaultdict(dict)
 
         for channel in self._channels:
             channel_data = None  # type: Optional[np.ndarray]
             for template in channel.templates:
+                template_toy = scipy_stats.poisson.rvs(template.bin_counts, random_state=self._random_state)
+                channel_template_toys[channel.name][template.name] = template_toy.tolist()
+
                 if channel_data is None:
-                    channel_data = copy.copy(template.bin_counts)
+                    channel_data = copy.copy(template_toy)
                 else:
                     assert channel_data.shape == template.bin_counts.shape, (
                         channel_data.shape,
                         template.bin_counts.shape,
                     )
-                    channel_data += template.bin_counts
-
-            if round_bin_counts:
-                channel_data = np.ceil(channel_data)
-
-            toy_data = scipy_stats.poisson.rvs(channel_data, random_state=self._random_state)
+                    channel_data += template_toy
 
             self._data_channels.add_channel(
                 channel_name=channel.name,
-                channel_data=np.ceil(toy_data) if round_bin_counts else toy_data,
+                channel_data=channel_data,
                 from_data=False,
                 binning=channel.binning,
                 column_names=channel.data_column_names,
@@ -886,6 +887,8 @@ class FitModel:
         self._data_channels._data_bin_counts = None
 
         self._has_data = True
+
+        return channel_template_toys
 
     # endregion
 
@@ -926,6 +929,7 @@ class FitModel:
     @immutable_cached_property
     def relative_shape_uncertainties(self) -> np.ndarray:
         cov_matrices_per_ch_and_temp = self.systematics_covariance_matrices_per_channel
+
         # TODO: Maybe add some more checks...
         assert cov_matrices_per_ch_and_temp is not None
 

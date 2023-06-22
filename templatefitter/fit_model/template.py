@@ -44,6 +44,7 @@ class Template(BinnedDistributionFromData):
         weights: WeightsInputType = None,
         systematics: SystematicsInputType = None,
         log_scale_mask: LogScaleInputType = False,
+        ignore_correlations_for: Optional[List[str]] = None,
     ) -> None:
         super().__init__(
             bins=bins,
@@ -55,6 +56,7 @@ class Template(BinnedDistributionFromData):
             weights=weights,
             systematics=systematics,
             data_column_names=data_column_names,
+            ignore_correlations_for=ignore_correlations_for,
         )
         self._params = params  # type: ParameterHandler
         self._process_name = process_name  # type: str
@@ -365,17 +367,13 @@ class Template(BinnedDistributionFromData):
 
         return template_shape * template_yield * template_fraction * template_efficiency
 
-    def expected_bin_errors_squared(
-        self,
-        use_initial_values: bool = False,
-    ) -> np.ndarray:
+    def expected_bin_errors_squared(self, use_initial_values: bool = False, use_stat_only: bool = False) -> np.ndarray:
         """
         This function is only used to plot the uncertainty of the individual templates in the FitResultPlot.
         During the fit, the uncertainties are handled via matrices and nuisance parameters.
         :return: np.ndarray containing the squared bin uncertainties for this template
         """
-        relative_uncertainties = self._get_relative_uncertainties_for_plotting(use_stat_only=False)
-        # TODO:
+        relative_uncertainties = self._get_relative_uncertainties_for_plotting(use_stat_only=use_stat_only)
         return np.square(self.expected_bin_counts(use_initial_values=use_initial_values) * relative_uncertainties)
 
     def get_template_shape_for_expected_bin_counts(

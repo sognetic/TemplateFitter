@@ -205,7 +205,9 @@ class FitTemplatesPlotter(FitPlotterBase):
                     template_bin_count, template_bin_error_sq = template.project_onto_dimension(
                         bin_counts=template.expected_bin_counts(use_initial_values=use_initial_values),
                         dimension=dimension,
-                        bin_errors_squared=template.expected_bin_errors_squared(use_initial_values=use_initial_values),
+                        bin_errors_squared=template.expected_bin_errors_squared(
+                            use_initial_values=use_initial_values, use_stat_only=not self._include_sys
+                        ),
                     )
 
                     current_plot.add_component(
@@ -217,7 +219,7 @@ class FitTemplatesPlotter(FitPlotterBase):
                     )
 
                     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=self._fig_size, dpi=200)
-                    current_plot.plot_on(ax1=ax)
+                    current_plot.plot_on(ax1=ax, include_sys=self._include_sys)
 
                     ax.set_title(self._get_plot_title(template=template, channel=mc_channel), loc="right")
 
@@ -272,11 +274,20 @@ class FitTemplatesPlotter(FitPlotterBase):
                 y_variable = self.channel_variables(dimension=dim_pair[1])[mc_channel.name]  # type: HistVariable
 
                 for template in mc_channel.templates_in_plot_order:
-                    template_bin_count, _ = template.project_onto_two_dimensions(
+                    _, template_bin_errors_sq_complete = template.project_onto_two_dimensions(
                         bin_counts=template.expected_bin_counts(use_initial_values=use_initial_values),
                         dimensions=dim_pair,
                         bin_errors_squared=template.expected_bin_errors_squared(use_initial_values=use_initial_values),
                     )
+                    template_bin_count, template_bin_errors_sq_statonly = template.project_onto_two_dimensions(
+                        bin_counts=template.expected_bin_counts(use_initial_values=use_initial_values),
+                        dimensions=dim_pair,
+                        bin_errors_squared=template.expected_bin_errors_squared(
+                            use_initial_values=use_initial_values, use_stat_only=True
+                        ),
+                    )
+
+                    template_bin_errors_sq_sysonly = template_bin_errors_sq_complete - template_bin_errors_sq_statonly
 
                     template_color = self._get_template_color(key=template.process_name, original_color=template.color)
 
@@ -294,6 +305,9 @@ class FitTemplatesPlotter(FitPlotterBase):
 
                     assert template_bin_count.shape == bin_scaling.shape, (template_bin_count.shape, bin_scaling.shape)
                     value_matrix = template_bin_count * bin_scaling  # type: np.ndarray
+
+                    rel_sys_errors_matrix = (np.sqrt(template_bin_errors_sq_sysonly) / template_bin_count) * bin_scaling
+                    rel_stat_errors_matrix = (np.sqrt(template_bin_errors_sq_statonly) / template_bin_count) * bin_scaling
 
                     fig, ax = plt.subplots(nrows=1, ncols=1, figsize=self._fig_size, dpi=200)
 
@@ -318,6 +332,21 @@ class FitTemplatesPlotter(FitPlotterBase):
                     value_matrix[value_matrix == 0.0] = np.nan
                     heatmap = ax.imshow(X=np.flip(value_matrix.T, axis=0), cmap=color_map, aspect="auto")
                     plt.colorbar(heatmap)
+
+                    flipped_sys = np.flip(rel_sys_errors_matrix.T, axis=0)
+                    flipped_stat = np.flip(rel_stat_errors_matrix.T, axis=0)
+
+                    for iy, ix in np.ndindex(flipped_stat.shape):
+                        # Loop over data dimensions and create text annotations.
+                        _ = ax.text(
+                            ix,
+                            iy,
+                            fr"$\pm {flipped_stat[iy, ix]:.2f}$" + "\n" + fr"$\pm {flipped_sys[iy, ix]:.2f}$",
+                            size=6,
+                            ha="center",
+                            va="center",
+                            color="k",
+                        )
 
                     self._set_2d_axis_tick_labels(ax=ax, binning=current_binning)
 

@@ -625,13 +625,17 @@ class IMinuitMinimizer(AbstractMinimizer):
             self.reset(initial_param_values=initial_param_values)
 
         success = False
-        for attempt in range(1, 4):
+        for attempt in range(1, 5):
             # perform minimization at least twice!
-            if additional_args.get("simplex"):
-                logging.warning("Using simplex before migrad!")
-                fmin = self._minuit_obj.simplex().migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
+            if additional_args is not None and additional_args.get("simplex"):
+                if attempt < 3:
+                    logging.warning("Using simplex after migrad!")
+                    fmin = self._minuit_obj.migrad(ncall=600_000 * attempt, iterate=2 + attempt).simplex().fmin
+                else:
+                    logging.warning("Using simplex before migrad!")
+                    fmin = self._minuit_obj.simplex().migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
             else:
-                fmin = self._minuit_obj.migrad(ncall=600_000 * attempt, iterate=2 + attempt).fmin
+                fmin = self._minuit_obj.migrad(ncall=800_000 * attempt, iterate=2 + attempt).fmin
 
             self._minuit_obj.hesse()
 
@@ -649,6 +653,7 @@ class IMinuitMinimizer(AbstractMinimizer):
             if success or not check_success:
                 if attempt > 1:
                     logging.warning(f"Fit successful after retrying {attempt} times.")
+                logging.info(fmin)
                 break
             else:
                 logging.warning(f"Minimum is inadequate, trying again w/ more iterations/calls (attempt {attempt + 1})")
@@ -674,7 +679,7 @@ class IMinuitMinimizer(AbstractMinimizer):
                     :, fixed_params
                 ]
             else:
-                logging.warning(f"Calculating the uncertainties again with numdifftools.")
+                logging.warning("Calculating the uncertainties again with numdifftools.")
                 floating_parameter_mask = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
 
                 def fixed_wrapper(floating_parameters: np.ndarray):
@@ -700,14 +705,21 @@ class IMinuitMinimizer(AbstractMinimizer):
 
             logging.warning(f"Profiling {len(profile_parameter)} parameters. This might take a while.")
             self._minuit_obj.minos(*profile_parameter)
-            success = fmin.is_valid and all([self._minuit_obj.merrors[param].is_valid for param in profile_parameter])
 
-            for param in profile_parameter:
-                self._params.add_asymmetric_error(
-                    param_id=param,
-                    new_up_error=self._minuit_obj.merrors[param].upper,
-                    new_down_error=self._minuit_obj.merrors[param].lower,
-                )
+            success = fmin.is_valid and all([self._minuit_obj.merrors[param].is_valid for param in profile_parameter])
+            if success:
+                for param in profile_parameter:
+                    logging.warning("Success!")
+                    logging.warning(self._minuit_obj.merrors[param])
+                    self._params.add_asymmetric_error(
+                        param_id=param,
+                        new_up_error=self._minuit_obj.merrors[param].upper,
+                        new_down_error=self._minuit_obj.merrors[param].lower,
+                    )
+            else:
+                logging.error("Minos has failed!")
+                for param in profile_parameter:
+                    logging.error(self._minuit_obj.merrors[param])
 
         self._success = success
 
@@ -715,6 +727,7 @@ class IMinuitMinimizer(AbstractMinimizer):
             f"valid minimum: {fmin.is_valid}\n"
             f"valid parameters: {fmin.has_valid_parameters}\n"
             f"covariance exists: {fmin.has_covariance}\n"
+            f"covariance is accurate: {fmin.has_accurate_covar}\n"
             f"covariance is positive definite (from MINUIT): {fmin.has_posdef_covar}\n"
             f"covariance is positive definite (from Numpy): {np.all(np.linalg.eigvals(self._params.covariance) > 0)}\n"
         )
@@ -765,6 +778,7 @@ class ScipyMinimizer(AbstractMinimizer):
         error_def: float = 0.5,
         additional_args: Optional[Tuple[Any, ...]] = None,
         get_hesse: bool = True,
+        profile_parameter: Optional[str] = None,
         check_success: bool = True,
     ) -> MinimizeResult:
         """
@@ -775,6 +789,8 @@ class ScipyMinimizer(AbstractMinimizer):
         initial_param_values : np.ndarray or list of floats
             Initial values for the parameters used as starting values.
             Shape is (`num_params`,).
+        verbose: bool
+            If True, a convergence message is printed. Default is False.
         error_def : Not used for this implementation
         additional_args : tuple
             Tuple of additional arguments for the objective function.
@@ -782,8 +798,8 @@ class ScipyMinimizer(AbstractMinimizer):
             If True, the Hesse matrix is estimated at the minimum
             of the objective function. This allows the calculation
             of parameter errors. Default is True.
-        verbose: bool
-            If True, a convergence message is printed. Default is False.
+        profile_parameter: bool
+            Not implemented here
         check_success: bool
             Check if fit was successful and raise if not! Default: True
 
@@ -791,6 +807,9 @@ class ScipyMinimizer(AbstractMinimizer):
         -------
         MinimizeResult
         """
+        if profile_parameter is not None:
+            raise NotImplementedError("ScipyMinimizer doesn't support profiling directly, use profile in fitter class.")
+
         constraints = self._create_constraints(initial_param_values)
 
         _additional_args = tuple([])  # type: Tuple[Any, ...]
