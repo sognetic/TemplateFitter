@@ -5,6 +5,7 @@ Class which defines the fit model by combining templates and handles the computa
 import copy
 import logging
 import operator
+from collections import defaultdict
 
 import numpy as np
 import scipy.stats as scipy_stats
@@ -850,7 +851,7 @@ class FitModel:
     def add_toy_data_from_templates(
         self,
         with_nuisance_fluctuations: bool = False,
-    ) -> None:
+    ) -> Dict:
         if self._original_data_channels is None and self._data_channels is not None:
             # Backing up original data_channels
             self._original_data_channels = self._data_channels
@@ -859,6 +860,7 @@ class FitModel:
             raise RuntimeError("Finalize the model first before drawing values from the nuisance parameters.")
 
         self._data_channels = ModelDataChannels()
+        template_variations = defaultdict(dict)
 
         if with_nuisance_fluctuations:
             nui_param_vector, nui_param_matrix = self.get_nuisance_parameters(
@@ -884,6 +886,13 @@ class FitModel:
                         ),
                         newshape=template.num_bins,
                     )
+                    template_variations[channel.name][template.name] = varied_bin_counts.tolist()
+
+                    if np.any(varied_bin_counts < 0):
+                        logging.warning(
+                            f"Negative expectation in {np.sum(varied_bin_counts < 0)} bins "
+                            f"for template {template.name}."
+                        )
                     assert (
                         varied_bin_counts.shape == template.bin_counts.shape
                     ), f"Shapes differ: {varied_bin_counts.shape}, {template.bin_counts.shape}"
@@ -899,12 +908,14 @@ class FitModel:
                         template.bin_counts.shape,
                     )
                     channel_data += template_toy
+            clipped_toy = np.clip(a=channel_data, a_min=0, a_max=None)
+
+            if not np.all(clipped_toy == channel_data):
+                logging.warning("Clipped toy at zero to prevent negatives!")
 
             self._data_channels.add_channel(
                 channel_name=channel.name,
-                channel_data=scipy_stats.poisson.rvs(
-                    np.clip(a=channel_data, a_min=0, a_max=None), random_state=self._random_state
-                ),
+                channel_data=scipy_stats.poisson.rvs(clipped_toy, random_state=self._random_state),
                 from_data=False,
                 binning=channel.binning,
                 column_names=channel.data_column_names,
@@ -916,6 +927,8 @@ class FitModel:
         self._data_channels._data_bin_counts = None
 
         self._has_data = True
+
+        return template_variations
 
     # endregion
 
@@ -1100,7 +1113,6 @@ class FitModel:
             -> number of nuisance parameters =
                     (3a): n_bins * n_channels * n_systematics    or
                     (3b): n_bins * n_channels * n_templates_p_ch * n_systematics
-
 
 
         The resulting systematic uncertainty matrix is stored in self._systematic_uncertainty_matrix and
