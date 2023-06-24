@@ -890,7 +890,7 @@ class FitModel:
                     ), f"Shapes differ: {varied_bin_counts.shape}, {template.bin_counts.shape}"
 
                     zerotest = np.reshape(
-                        template.bin_counts.flatten()
+                        (template.bin_counts.flatten() / np.sum(template.bin_counts.flatten()))
                         * template.yield_parameter.initial_value
                         * template.efficiency_parameter.initial_value,
                         newshape=template.num_bins,
