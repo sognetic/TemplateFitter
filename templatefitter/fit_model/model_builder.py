@@ -98,7 +98,6 @@ class FitModel:
         )  # type: FractionManager
 
         self._inverse_template_bin_correlation_matrix = None  # type: Optional[np.ndarray]
-        self._template_bin_correlation_matrix = None  # type: Optional[np.ndarray]
         self._systematics_covariance_matrices_per_channel = None  # type: Optional[List[np.ndarray]]
 
         self._has_data = False  # type: bool
@@ -862,25 +861,18 @@ class FitModel:
         self._data_channels = ModelDataChannels()
         template_variations = defaultdict(dict)
 
-        if with_nuisance_fluctuations:
-            nui_param_vector, nui_param_matrix = self.get_nuisance_parameters(
-                self._params.get_initial_values_of_floating_parameters()
-            )
-            nui_variation_vector = self._random_state.multivariate_normal(
-                mean=np.zeros_like(nui_param_vector), cov=self._template_bin_correlation_matrix
-            )
-            varied_normed_templates = self.get_templates(
-                nuisance_parameters=np.reshape(nui_variation_vector, newshape=self._nuisance_matrix_shape)
-            )
-
         for channel_no, channel in enumerate(self._channels):
             channel_data = None  # type: Optional[np.ndarray]
-            for templateno, template in enumerate(channel.templates):
+            for template_no, template in enumerate(channel.templates):
 
                 if with_nuisance_fluctuations:
+                    nui_variation = template.bin_counts.flatten() + self._random_state.multivariate_normal(
+                        mean=np.zeros(template.num_bins_total),
+                        cov=self._systematics_covariance_matrices_per_channel[channel_no][template_no],
+                    )
                     varied_bin_counts = np.reshape(
                         (
-                            varied_normed_templates[channel_no][templateno]
+                            (nui_variation / np.sum(nui_variation))
                             * template.yield_parameter.initial_value
                             * template.efficiency_parameter.initial_value
                         ),
@@ -896,6 +888,16 @@ class FitModel:
                     assert (
                         varied_bin_counts.shape == template.bin_counts.shape
                     ), f"Shapes differ: {varied_bin_counts.shape}, {template.bin_counts.shape}"
+
+                    zerotest = np.reshape(
+                        template.bin_counts.flatten()
+                        * template.yield_parameter.initial_value
+                        * template.efficiency_parameter.initial_value,
+                        newshape=template.num_bins,
+                    )
+                    assert np.allclose(zerotest, template.bin_counts), (
+                        f"Something went wrong here," f" {zerotest} != {template.bin_counts}"
+                    )
                     template_toy = varied_bin_counts
                 else:
                     template_toy = template.bin_counts
@@ -1198,11 +1200,6 @@ class FitModel:
             for cov_matrix in cov_matrices_per_temp
         ]
         self._inverse_template_bin_correlation_matrix = block_diag(*inv_corr_matrices)
-
-        corr_matrices = [
-            cov2corr(cov_matrix) for cov_matrices_per_temp in cov_matrices_per_ch for cov_matrix in cov_matrices_per_temp
-        ]
-        self._template_bin_correlation_matrix = block_diag(*corr_matrices)
 
         # Option 1a:
         # inv_corr_matrices = [np.linalg.inv(cov2corr(cov_matrix)) for cov_matrix in cov_matrices_per_ch]
