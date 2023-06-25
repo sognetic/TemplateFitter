@@ -255,6 +255,11 @@ class MinimizerParameters:
         self._up_errors[param_index] = new_up_error
         self._dn_errors[param_index] = new_down_error
 
+    def get_asymmetric_error(self, param_id: Union[int, str, np.integer]):
+
+        param_index = self.param_id_to_index(param_id=param_id)
+        return self._up_errors[param_index], self._dn_errors[param_index]
+
     @property
     def covariance(self) -> np.ndarray:
         """ np.ndarray: Parameter covariance matrix. Shape is (`num_params`, `num_params`)."""
