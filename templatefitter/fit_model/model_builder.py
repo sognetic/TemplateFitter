@@ -795,7 +795,6 @@ class FitModel:
         self,
         scaling_dict: Dict[Union[Template, str], float],
         round_bin_counts: bool = False,
-        as_toys: bool = False,
     ) -> None:
         """Useful to test linearity of the fit."""
 
@@ -829,14 +828,9 @@ class FitModel:
 
             logging.debug(f"Synthetic data sum: {np.sum(channel_data)}")
 
-            if as_toys:
-                fake_data = scipy_stats.poisson.rvs(channel_data, random_state=self._random_state)
-            else:
-                fake_data = channel_data
-
             self._data_channels.add_channel(
                 channel_name=channel.name,
-                channel_data=np.ceil(fake_data) if round_bin_counts else fake_data,
+                channel_data=np.ceil(channel_data) if round_bin_counts else channel_data,
                 from_data=False,
                 binning=channel.binning,
                 column_names=channel.data_column_names,
@@ -850,6 +844,7 @@ class FitModel:
     def add_toy_data_from_templates(
         self,
         with_nuisance_fluctuations: bool = False,
+        scaling_dict: Optional[Dict[Union[Template, str], float]] = None,
     ) -> Dict:
         if self._original_data_channels is None and self._data_channels is not None:
             # Backing up original data_channels
@@ -865,6 +860,18 @@ class FitModel:
             channel_data = None  # type: Optional[np.ndarray]
             for template_no, template in enumerate(channel.templates):
 
+                template_yield_parameter_name = template.yield_parameter.base_model_parameter.name
+                if scaling_dict is None:
+                    factor = 1.0
+                elif template in scaling_dict:
+                    factor = scaling_dict.pop(template)
+                    logging.debug(f"Scaling {template} with factor {factor}")
+                elif template_yield_parameter_name in scaling_dict:
+                    factor = scaling_dict.pop(template_yield_parameter_name)
+                    logging.debug(f"Scaling {template_yield_parameter_name} with factor {factor}")
+                else:
+                    factor = 1.0
+
                 if with_nuisance_fluctuations:
                     nui_variation = template.bin_counts.flatten() + self._random_state.multivariate_normal(
                         mean=np.zeros(template.num_bins_total),
@@ -874,6 +881,7 @@ class FitModel:
                         (
                             (nui_variation / np.sum(nui_variation))
                             * template.yield_parameter.initial_value
+                            * factor
                             * template.efficiency_parameter.initial_value
                         ),
                         newshape=template.num_bins,
