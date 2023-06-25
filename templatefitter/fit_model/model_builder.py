@@ -793,7 +793,7 @@ class FitModel:
 
     def add_data_from_scaled_templates(
         self,
-        scaling_dict: Dict[Union[Template, str], float],
+        scaling_factors: Dict[Union[Template, str], float],
         round_bin_counts: bool = False,
     ) -> None:
         """Useful to test linearity of the fit."""
@@ -809,10 +809,10 @@ class FitModel:
             for template in channel.templates:
 
                 template_yield_parameter_name = template.yield_parameter.base_model_parameter.name
-                if template in scaling_dict:
-                    factor = scaling_dict.pop(template)
-                elif template_yield_parameter_name in scaling_dict:
-                    factor = scaling_dict.pop(template_yield_parameter_name)
+                if template in scaling_factors:
+                    factor = scaling_factors.pop(template)
+                elif template_yield_parameter_name in scaling_factors:
+                    factor = scaling_factors.pop(template_yield_parameter_name)
                 else:
                     factor = 1.0
 
