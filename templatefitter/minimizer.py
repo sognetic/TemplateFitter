@@ -688,7 +688,7 @@ class IMinuitMinimizer(AbstractMinimizer):
                 self._params.correlation = np.array(self._minuit_obj.covariance.correlation())[fixed_params, :][
                     :, fixed_params
                 ]
-            else:
+            elif not profile_parameter:
                 logging.warning("Covariance inadequate. Calculating the uncertainties again with numdifftools.")
                 floating_parameter_mask = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
 

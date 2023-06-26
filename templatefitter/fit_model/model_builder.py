@@ -139,10 +139,20 @@ class FitModel:
         self.ncall = 0
 
         # Setting a random seed for the toy data set generation with SciPy
-        self._random_state = np.random.RandomState(seed=7694747)  # type: np.random.RandomState
+        self._internal_random_state = np.random.RandomState(seed=7694747)  # type: np.random.RandomState
 
     # region Basic Properties
     # Attributes forwarded to self._channels
+
+    @property
+    def _random_state(self):
+        logging.debug("Accessing random state")
+        return self._internal_random_state
+
+    @_random_state.setter
+    def _random_state(self, random_state_obj):
+        logging.debug("Accessing random state")
+        self._internal_random_state = random_state_obj
 
     @immutable_cached_property
     def binning(self) -> Tuple[Binning, ...]:
