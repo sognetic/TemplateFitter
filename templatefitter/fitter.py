@@ -70,6 +70,7 @@ class TemplateFitter:
         get_hesse: bool = True,
         verbose: bool = True,
         fix_nui_params: bool = False,
+        processes_with_fixed_nui: Optional[List[str]] = None,
         parameters_to_fix: Optional[Sequence[Union[str, int]]] = None,
         use_simplex: bool = False,
         profile_parameter: Optional[str] = None,
@@ -101,6 +102,7 @@ class TemplateFitter:
         MinimizeResult : namedtuple
             A namedtuple with the most important information about the minimization.
         """
+
         self.minimizer = minimizer_factory(
             minimizer_id=self._minimizer_id,
             fcn=self._nll_creator(fix_nuisance_parameters=fix_nui_params),
@@ -111,6 +113,13 @@ class TemplateFitter:
         if fix_nui_params:
             for param_id in self._fit_model.floating_nuisance_parameter_indices:
                 self.minimizer.set_param_fixed(param_id=param_id)
+
+        if processes_with_fixed_nui is not None:
+            assert not fix_nui_params, "No need to fix individual templates if you're fixing everything."
+
+            for process in processes_with_fixed_nui:
+                for param_id in self._fit_model.get_floating_nuisance_parameter_indices_for_process(process):
+                    self.minimizer.set_param_fixed(param_id=param_id)
 
         if parameters_to_fix is not None:
             for param_to_fix in parameters_to_fix:

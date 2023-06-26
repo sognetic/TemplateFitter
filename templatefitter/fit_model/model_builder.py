@@ -964,6 +964,16 @@ class FitModel:
 
         return np.array(floating_nuisance_parameter_indices)
 
+    def get_floating_nuisance_parameter_indices_for_process(self, process_name: str) -> Union[np.ndarray, List[int]]:
+        floating_nuisance_parameter_indices = []
+        for template in self.get_templates_by_process_name(process_name):
+            for nui_index in template.bin_nuisance_parameter_indices:
+                if self._params.floating_parameter_mask[nui_index]:
+                    param_id = sum(self._params.floating_parameter_mask[: nui_index + 1]) - 1  # type: int
+                    floating_nuisance_parameter_indices.append(param_id)
+
+        return np.array(floating_nuisance_parameter_indices)
+
     @immutable_cached_property
     def bin_nuisance_parameter_indices(self) -> Union[np.ndarray, List[int]]:
         bin_nuisance_param_indices = self._params.get_parameter_indices_for_type(
