@@ -678,7 +678,11 @@ class IMinuitMinimizer(AbstractMinimizer):
         self._params.values = np.array(self._minuit_obj.values)
         self._params.errors = np.array(self._minuit_obj.errors)
         if get_hesse:
-            if fmin.has_covariance and fmin.has_accurate_covar and self._minuit_obj.covariance is not None:
+            if (
+                fmin.has_covariance
+                and self._minuit_obj.covariance is not None
+                and (fmin.has_accurate_covar or not check_success)
+            ):
                 fixed_params = tuple(~np.array(self._get_fixed_params()))  # type: Tuple[bool, ...]
                 self._params.covariance = np.array(self._minuit_obj.covariance)[fixed_params, :][:, fixed_params]
                 self._params.correlation = np.array(self._minuit_obj.covariance.correlation())[fixed_params, :][
@@ -712,10 +716,13 @@ class IMinuitMinimizer(AbstractMinimizer):
             logging.warning(f"Profiling {len(profile_parameter)} parameters. This might take a while.")
             self._minuit_obj.minos(*profile_parameter)
 
-            success = fmin.is_valid and all([self._minuit_obj.merrors[param].is_valid for param in profile_parameter])
+            success = fmin.is_valid and (
+                all([self._minuit_obj.merrors[param].is_valid for param in profile_parameter])
+                or (fmin.has_posdef_covar and fmin.has_accurate_covar)
+            )
             if success:
                 for param in profile_parameter:
-                    logging.info("Success!")
+                    logging.info(f"Successfully profiled parameter {profile_parameter}.")
                     logging.info(self._minuit_obj.merrors[param])
                     self._params.add_asymmetric_error(
                         param_id=param,
@@ -723,7 +730,9 @@ class IMinuitMinimizer(AbstractMinimizer):
                         new_down_error=self._minuit_obj.merrors[param].lower,
                     )
             else:
-                logging.error("Minos has failed!")
+                logging.error(f"Minos has failed profiling parameter {profile_parameter}.")
+                if fmin.has_posdef_covar and fmin.has_accurate_covar:
+                    logging.error("... but we can use the Hesse uncertainties instead.")
                 for param in profile_parameter:
                     logging.error(self._minuit_obj.merrors[param])
 
