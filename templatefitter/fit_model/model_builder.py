@@ -901,7 +901,7 @@ class FitModel:
                     if np.any(varied_bin_counts < 0):
                         logging.warning(
                             f"Negative expectation in {np.sum(varied_bin_counts < 0)} bins "
-                            f"for template {template.name}."
+                            f"for template {template.name}. Sum: {np.sum(varied_bin_counts)}"
                         )
                     assert (
                         varied_bin_counts.shape == template.bin_counts.shape
@@ -931,7 +931,7 @@ class FitModel:
             clipped_toy = np.clip(a=channel_data, a_min=0, a_max=None)
 
             if not np.all(clipped_toy == channel_data):
-                logging.warning("Clipped toy at zero to prevent negatives!")
+                logging.warning(f"Clipped toy at zero to prevent {np.sum(channel_data < 0)} negatives!")
 
             self._data_channels.add_channel(
                 channel_name=channel.name,
@@ -1208,8 +1208,13 @@ class FitModel:
         #            for stat_m, o_cov_m in zip(template_statistics_sys_per_ch, other_systematics_cov_matrix_per_ch)), \
         #     [(a.shape, b.shape) for a, b in zip(template_statistics_sys_per_ch, other_systematics_cov_matrix_per_ch)]
 
+        def recondition(covmat, condval=1e-4):
+            eigenvalues, eigenvectors = np.linalg.eig(covmat)
+            eigenvalues[eigenvalues < condval] = condval
+            return eigenvectors @ np.diag(eigenvalues) @ eigenvectors.T
+
         cov_matrices_per_ch = [
-            [stat_sys + cov_matrix for stat_sys, cov_matrix in zip(stat_sys_covs, o_covs)]
+            [recondition(stat_sys + cov_matrix) for stat_sys, cov_matrix in zip(stat_sys_covs, o_covs)]
             for stat_sys_covs, o_covs in zip(template_statistics_sys_per_ch, other_sys_cov_matrix_per_ch_and_temp)
         ]
 
