@@ -877,7 +877,7 @@ class ScipyMinimizer(AbstractMinimizer):
             pass  # TODO
 
         assert self._success is not None
-        result = MinimizeResult(fcn_min_val=opt_result.fun, params=self._params, success=bool(self._success))
+        result = MinimizeResult(fcn_min_val=opt_result.fun, params=self._params, success=self._success)
 
         return result
 
