@@ -921,17 +921,21 @@ class FitModel:
                     template_toy = template.bin_counts
 
                 if channel_data is None:
-                    channel_data = copy.copy(np.clip(a=template_toy, a_min=0.0, a_max=None))
+                    channel_data = copy.copy(template_toy)
                 else:
                     assert channel_data.shape == template.bin_counts.shape, (
                         channel_data.shape,
                         template.bin_counts.shape,
                     )
-                    channel_data += np.clip(a=template_toy, a_min=0.0, a_max=None)
+                    channel_data += template_toy
+            clipped_toy = np.clip(a=channel_data, a_min=0, a_max=None)
+
+            if not np.all(clipped_toy == channel_data):
+                logging.warning("Clipped toy at zero to prevent negatives!")
 
             self._data_channels.add_channel(
                 channel_name=channel.name,
-                channel_data=scipy_stats.poisson.rvs(channel_data, random_state=self._random_state),
+                channel_data=scipy_stats.poisson.rvs(clipped_toy, random_state=self._random_state),
                 from_data=False,
                 binning=channel.binning,
                 column_names=channel.data_column_names,
