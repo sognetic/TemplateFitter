@@ -931,7 +931,7 @@ class FitModel:
             clipped_toy = np.clip(a=channel_data, a_min=0, a_max=None)
 
             if not np.all(clipped_toy == channel_data):
-                logging.warning("Clipped toy at zero to prevent negatives!")
+                logging.warning(f"Clipped toy at zero to prevent {np.sum(clipped_toy == 0.0)} negatives!")
 
             self._data_channels.add_channel(
                 channel_name=channel.name,
