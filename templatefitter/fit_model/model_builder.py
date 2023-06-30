@@ -820,9 +820,9 @@ class FitModel:
 
                 template_yield_parameter_name = template.yield_parameter.base_model_parameter.name
                 if template in scaling_factors:
-                    factor = scaling_factors.pop(template)
+                    factor = scaling_factors[template]
                 elif template_yield_parameter_name in scaling_factors:
-                    factor = scaling_factors.pop(template_yield_parameter_name)
+                    factor = scaling_factors[template_yield_parameter_name]
                 else:
                     factor = 1.0
 
@@ -836,7 +836,7 @@ class FitModel:
                 else:
                     channel_data += template.bin_counts * factor
 
-            logging.debug(f"Synthetic data sum: {np.sum(channel_data)}")
+            logging.info(f"Synthetic data sum: {np.sum(channel_data)}")
 
             self._data_channels.add_channel(
                 channel_name=channel.name,
@@ -874,12 +874,13 @@ class FitModel:
                 if scaling_dict is None:
                     factor = 1.0
                 elif template in scaling_dict:
-                    factor = scaling_dict.pop(template)
-                    logging.debug(f"Scaling {template} with factor {factor}")
+                    factor = scaling_dict[template]
+                    logging.info(f"Scaling {template} with factor {factor}")
                 elif template_yield_parameter_name in scaling_dict:
-                    factor = scaling_dict.pop(template_yield_parameter_name)
-                    logging.debug(f"Scaling {template_yield_parameter_name} with factor {factor}")
+                    factor = scaling_dict[template_yield_parameter_name]
+                    logging.info(f"Scaling {template_yield_parameter_name} with factor {factor}")
                 else:
+                    logging.info(f"Not scaling {template_yield_parameter_name}")
                     factor = 1.0
 
                 if with_nuisance_fluctuations:
