@@ -475,7 +475,7 @@ class AbstractMinimizer(ABC):
 
     def set_param_fixed(self, param_id: Union[int, str]) -> None:
         """
-        Fixes specified parameter to it's initial value given in
+        Fixes specified parameter to its initial value given in
         `initial_param_values`.
 
         Parameters

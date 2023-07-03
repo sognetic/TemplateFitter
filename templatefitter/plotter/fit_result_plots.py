@@ -126,26 +126,26 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
 
         if style.lower() == "stacked":
             ax1.hist(
-                x=[self.bin_mids for i in range(self._histograms[self.mc_key].number_of_components)
-                   if i not in neg_hist_index],
+                x=[
+                    self.bin_mids
+                    for i in range(self._histograms[self.mc_key].number_of_components)
+                    if i not in neg_hist_index
+                ],
                 bins=self.bin_edges,
                 weights=[mc_bin_counts[i] for i in range(len(mc_bin_counts)) if i not in neg_hist_index],
                 stacked=True,
                 edgecolor="black",
                 lw=0.3,
                 bottom=mc_sum_bin_count - mc_pos_sum_bin_count,
-                color=[l for i,l in enumerate(self._histograms[self.mc_key].colors) if i not in neg_hist_index] ,  # type: ignore  # The type here is correct!
-                label=[l for i,l in enumerate(self._histograms[self.mc_key].labels) if i not in neg_hist_index] ,  # type: ignore  # The type here is correct!
+                color=[l for i, l in enumerate(self._histograms[self.mc_key].colors) if i not in neg_hist_index],  # type: ignore  # The type here is correct!
+                label=[l for i, l in enumerate(self._histograms[self.mc_key].labels) if i not in neg_hist_index],  # type: ignore  # The type here is correct!
                 histtype="stepfilled",
             )
 
             if len(neg_hist_index):
-                nhatch = r'xx'
+                nhatch = r"xx"
                 for nhi in neg_hist_index:
-                    n, b = np.histogram(
-                        a=self.bin_mids,
-                        bins=self.bin_edges,
-                        weights=mc_bin_counts[nhi])
+                    n, b = np.histogram(a=self.bin_mids, bins=self.bin_edges, weights=mc_bin_counts[nhi])
                     ax1.bar(
                         x=self.bin_mids,
                         height=abs(n),
@@ -156,7 +156,7 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
                         hatch=nhatch,
                         label=self._histograms[self.mc_key].labels[nhi],
                         fill=False,
-                        lw=1
+                        lw=1,
                     )
 
             ax1.bar(
@@ -253,7 +253,7 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
         ax1.set_xlim(self.bin_edges[0], self.bin_edges[-1])
         ax2.set_xlim(self.bin_edges[0], self.bin_edges[-1])
 
-        ax1.set_ylim(bottom=np.ceil(min(mc_sum_bin_count - mc_pos_sum_bin_count)/10)*10)
+        ax1.set_ylim(bottom=np.ceil(min(mc_sum_bin_count - mc_pos_sum_bin_count) / 10) * 10)
 
         return comparison_output
 
@@ -395,7 +395,7 @@ class FitResultPlotter(FitPlotterBase):
                     ax2=ratio_ax,
                     ratio_type="vs_uncert",
                     include_sys=self._include_sys,
-                    gof_check_method="pearson",
+                    gof_check_method="pearson" if not use_initial_values else None,
                 )
 
                 if bin_info_pos == "left" or sub_bin_info_text is None:
@@ -516,7 +516,7 @@ class FitResultPlotter(FitPlotterBase):
                 ax2=ratio_ax,
                 ratio_type="vs_uncert",
                 include_sys=self._include_sys,
-                gof_check_method="pearson",
+                gof_check_method="pearson" if not use_initial_values else None,
             )
 
             if "luminosity" in self._optional_arguments_dict:
@@ -578,7 +578,7 @@ class FitResultPlotter(FitPlotterBase):
         super().add_info_text(axis, fig, key)
 
         # Resetting everything again
-        if additional_info_str is None:
+        if "additional_info_str" in self._optional_arguments_dict and additional_info_str is None:
             del self._optional_arguments_dict["additional_info_str"]
         else:
             self._optional_arguments_dict["additional_info_str"] = additional_info_str

@@ -74,6 +74,7 @@ class TemplateFitter:
         parameters_to_fix: Optional[Sequence[Union[str, int]]] = None,
         use_simplex: bool = False,
         profile_parameter: Optional[str] = None,
+        set_parameters_to_values: Optional[Dict[Union[str, int], float]] = None,
     ) -> MinimizeResult:
         """
         Performs maximum likelihood fit by minimizing the provided negative log likelihood function.
@@ -121,6 +122,12 @@ class TemplateFitter:
                 for param_id in self._fit_model.get_floating_nuisance_parameter_indices_for_process(process):
                     self.minimizer.set_param_fixed(param_id=param_id)
 
+        initial_values = self._nll.x0
+        if set_parameters_to_values is not None:
+            for param_id, param_val in set_parameters_to_values.items():
+                param_index = self.minimizer.params.param_id_to_index(param_id=param_id)
+                initial_values[param_index] = param_val
+
         if parameters_to_fix is not None:
             for param_to_fix in parameters_to_fix:
                 self.minimizer.set_param_fixed(param_id=param_to_fix)
@@ -132,7 +139,7 @@ class TemplateFitter:
             self.minimizer.set_param_bounds(param_id=param_id_or_str, bounds=bounds)
 
         fit_result = self.minimizer.minimize(
-            initial_param_values=self._nll.x0,
+            initial_param_values=initial_values,
             verbose=verbose,
             get_hesse=get_hesse,
             profile_parameter=profile_parameter,
