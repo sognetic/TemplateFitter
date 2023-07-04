@@ -44,6 +44,8 @@ def pearson_chi2_test(
         Expected bin counts. Shape is (num_bins,)
     dof : int
         Degrees of freedom. This is the number of bins minus the number of free fit parameters.
+    error: Optional[np.ndarray]
+        Uncertainty for a reduced chi2 test. Should already include stat. uncertainty on the expectation.
 
     Returns
     -------
@@ -56,7 +58,7 @@ def pearson_chi2_test(
     """
 
     if error is not None:
-        chi_sq = np.sum((data - expectation) ** 2 / error)
+        chi_sq = np.sum((data - expectation) ** 2 / error ** 2)
     else:
         chi_sq = np.sum((data - expectation) ** 2 / expectation)
 

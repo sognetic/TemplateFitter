@@ -247,7 +247,7 @@ class DataMCHistogramBase(HistogramPlot):
         method: Optional[str],
         mc_bin_count: np.ndarray,
         data_bin_count: np.ndarray,
-        stat_mc_uncertainty_sq: np.ndarray,
+        total_mc_uncertainty_sq: np.ndarray,
         mc_is_normalized_to_data: bool,
         mc_scale_factor: Optional[float] = None,
     ) -> DataMCComparisonOutputType:
@@ -260,7 +260,12 @@ class DataMCHistogramBase(HistogramPlot):
         dof = self.number_of_bins - 1 if mc_is_normalized_to_data else self.number_of_bins
 
         if method.lower() == "pearson":
-            chi2, ndf, p_val = pearson_chi2_test(data=data_bin_count, expectation=mc_bin_count, dof=dof)
+            chi2, ndf, p_val = pearson_chi2_test(
+                data=data_bin_count,
+                expectation=mc_bin_count,
+                dof=dof,
+                error=np.sqrt(total_mc_uncertainty_sq + mc_bin_count),
+            )
             return DataMCComparisonOutput(
                 chi2=chi2,
                 ndf=ndf,
@@ -483,6 +488,59 @@ class DataMCHistogramBase(HistogramPlot):
                 va="bottom",
             )
             axis.axhline(y=0, color=plot_style.KITColors.dark_grey, alpha=0.8)
+
+    def get_bin_info_for_component(
+        self,
+        component_key: Optional[str] = None,
+        data_key: Optional[str] = None,
+        normalize_to_data: bool = False,
+        include_sys: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+        if component_key is None:
+            component_key = self.mc_key
+        if component_key not in self._histograms.histogram_keys:
+            raise KeyError(
+                f"Histogram key '{component_key}' was not added to the {self.__class__.__name__} "
+                f"instance!\nAvailable histogram keys are: {self._histograms.histogram_keys}"
+            )
+
+        if data_key is None:
+            data_key = self.data_key
+        if data_key not in self._histograms.histogram_keys:
+            raise KeyError(
+                f"Histogram key '{data_key}' was not added to the {self.__class__.__name__} "
+                f"instance!\nAvailable histogram keys are: {self._histograms.histogram_keys}"
+            )
+
+        # Making mypy happy with extra np array call
+        component_bin_count = np.array(np.sum(np.array(self._histograms[component_key].get_bin_counts()), axis=0))
+
+        if not normalize_to_data:
+            norm_factor = None  # type: None
+        else:
+            norm_factor = (
+                self._histograms[data_key].raw_data_size / self._histograms[component_key].raw_weight_sum
+            )  # type: float
+            component_bin_count *= norm_factor
+
+        component_stat_uncert_sq = self._histograms[component_key].get_statistical_uncertainty_per_bin(
+            normalization_factor=norm_factor
+        )
+        component_uncert_sq = copy.deepcopy(component_stat_uncert_sq)
+
+        if include_sys:
+            sys_uncertainty_squared = self._histograms[component_key].get_systematic_uncertainty_per_bin()
+            if sys_uncertainty_squared is not None:
+                component_uncert_sq += sys_uncertainty_squared
+
+        assert len(component_bin_count.shape) == 1, component_bin_count.shape
+        assert component_bin_count.shape[0] == self.number_of_bins, (component_bin_count.shape, self.number_of_bins)
+        assert component_bin_count.shape == component_uncert_sq.shape, (
+            component_bin_count.shape,
+            component_uncert_sq.shape,
+        )
+
+        return component_bin_count, component_uncert_sq, component_stat_uncert_sq, norm_factor
 
     @staticmethod
     def _check_style_settings_input(
@@ -749,7 +807,7 @@ class DataMCHistogramPlot(DataMCHistogramBase):
                 method=gof_check_method,
                 mc_bin_count=mc_bin_count,
                 data_bin_count=data_bin_count,
-                stat_mc_uncertainty_sq=stat_mc_uncert_sq,
+                total_mc_uncertainty_sq=mc_uncert_sq,
                 mc_is_normalized_to_data=normalize_to_data,
                 mc_scale_factor=norm_factor,
             )  # type: DataMCComparisonOutputType
@@ -762,7 +820,7 @@ class DataMCHistogramPlot(DataMCHistogramBase):
                 method="pearson",
                 mc_bin_count=mc_bin_count,
                 data_bin_count=data_bin_count,
-                stat_mc_uncertainty_sq=stat_mc_uncert_sq,
+                total_mc_uncertainty_sq=mc_uncert_sq,
                 mc_is_normalized_to_data=normalize_to_data,
                 mc_scale_factor=norm_factor,
             )
@@ -808,54 +866,3 @@ class DataMCHistogramPlot(DataMCHistogramBase):
         plt.subplots_adjust(hspace=0.08)
 
         return comparison_output
-
-    def get_bin_info_for_component(
-        self,
-        component_key: Optional[str] = None,
-        data_key: Optional[str] = None,
-        normalize_to_data: bool = False,
-        include_sys: bool = False,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-        if component_key is None:
-            component_key = self.mc_key
-        if component_key not in self._histograms.histogram_keys:
-            raise KeyError(
-                f"Histogram key '{component_key}' was not added to the {self.__class__.__name__} "
-                f"instance!\nAvailable histogram keys are: {self._histograms.histogram_keys}"
-            )
-
-        if data_key is None:
-            data_key = self.data_key
-        if data_key not in self._histograms.histogram_keys:
-            raise KeyError(
-                f"Histogram key '{data_key}' was not added to the {self.__class__.__name__} "
-                f"instance!\nAvailable histogram keys are: {self._histograms.histogram_keys}"
-            )
-
-        # Making mypy happy with extra np array call
-        component_bin_count = np.array(np.sum(np.array(self._histograms[component_key].get_bin_counts()), axis=0))
-
-        if not normalize_to_data:
-            norm_factor = 1.0  # type: float
-        else:
-            norm_factor = self._histograms[data_key].raw_data_size / self._histograms[component_key].raw_weight_sum
-            component_bin_count *= norm_factor
-
-        component_stat_uncert_sq = self._histograms[component_key].get_statistical_uncertainty_per_bin(
-            normalization_factor=norm_factor
-        )
-        component_uncert_sq = copy.deepcopy(component_stat_uncert_sq)
-
-        if include_sys:
-            sys_uncertainty_squared = self._histograms[component_key].get_systematic_uncertainty_per_bin()
-            if sys_uncertainty_squared is not None:
-                component_uncert_sq += sys_uncertainty_squared
-
-        assert len(component_bin_count.shape) == 1, component_bin_count.shape
-        assert component_bin_count.shape[0] == self.number_of_bins, (component_bin_count.shape, self.number_of_bins)
-        assert component_bin_count.shape == component_uncert_sq.shape, (
-            component_bin_count.shape,
-            component_uncert_sq.shape,
-        )
-
-        return component_bin_count, component_uncert_sq, component_stat_uncert_sq, norm_factor

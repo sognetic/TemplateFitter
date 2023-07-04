@@ -111,13 +111,16 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
 
         mc_bin_counts = self._histograms[self.mc_key].get_bin_counts()
 
-        mc_sum_bin_count = np.sum(np.array(mc_bin_counts), axis=0)
+        mc_sum_bin_count, mc_sum_bin_error_sq, stat_mc_uncert_sq, norm_factor = self.get_bin_info_for_component(
+            component_key=self.mc_key,
+            normalize_to_data=False,
+            include_sys=include_sys,
+        )  # type: np.ndarray, np.ndarray, np.ndarray, float
+
         neg_hist_index = [i for i, mc_bc in enumerate(mc_bin_counts) if any(mc_bc < 0)]
         mc_pos_sum_bin_count = np.sum(
             np.array([mc_bin_counts[i] for i in range(len(mc_bin_counts)) if i not in neg_hist_index]), axis=0
         )
-
-        mc_sum_bin_error_sq = self._histograms[self.mc_key].get_statistical_uncertainty_per_bin()
 
         bar_bottom = mc_sum_bin_count - np.sqrt(mc_sum_bin_error_sq)
         height_corr = np.where(bar_bottom < 0.0, bar_bottom, 0.0)
@@ -199,7 +202,7 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
                 method=gof_check_method,
                 mc_bin_count=mc_sum_bin_count,
                 data_bin_count=data_bin_count,
-                stat_mc_uncertainty_sq=mc_sum_bin_error_sq,
+                total_mc_uncertainty_sq=mc_sum_bin_error_sq,
                 mc_is_normalized_to_data=False,
             )  # type: DataMCComparisonOutputType
         except IndexError:
@@ -211,7 +214,7 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
                 method="pearson",
                 mc_bin_count=mc_sum_bin_count,
                 data_bin_count=data_bin_count,
-                stat_mc_uncertainty_sq=mc_sum_bin_error_sq,
+                total_mc_uncertainty_sq=mc_sum_bin_error_sq,
                 mc_is_normalized_to_data=False,
             )
 
