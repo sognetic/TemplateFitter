@@ -5,6 +5,7 @@ Provides statistical methods for goodness of fit test
 import numpy as np
 
 from scipy.stats import chi2
+from scipy.linalg import solve_triangular
 from typing import Optional, Union, Tuple, List
 
 __all__ = [
@@ -338,3 +339,63 @@ def toy_chi2_test(
         try_count += 1
 
     return 0.0, 0.0, (np.array([]), np.array([]), np.array([]))
+
+
+def kafe2_chi2_test(
+    data: np.ndarray,
+    expectation: np.ndarray,
+    dof: int,
+    covariance_matrix: Optional[np.ndarray] = None,
+) -> Tuple[float, int, float]:
+    """
+    Performs a Pearson chi2-test.
+    This test reflects the level of agreement between observed and expected histograms.
+    The test statistic is
+
+        chi2 = sum limits(i=1; n_bins) (n_i - nu_i)^2 / nu_i,
+
+    where n_i is the number of observations in bin i and nu_i is the expected number of events in bin i.
+
+    In the large sample limits, this test statistic follows a chi2-distribution
+    with n_bins - m degrees of freedom,
+    where m is the number of unconstrained fit parameters.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Data bin counts. Shape is (num_bins,)
+    expectation : np.ndarray
+        Expected bin counts. Shape is (num_bins,)
+    dof : int
+        Degrees of freedom. This is the number of bins minus the number of free fit parameters.
+    error: Optional[np.ndarray]
+        Uncertainty for a reduced chi2 test. Should already include stat. uncertainty on the expectation.
+
+    Returns
+    -------
+    float
+        chi2
+    float
+        dof
+    float
+        p-value
+    """
+
+    try:
+        cov_mat_cholesky = np.linalg.cholesky(covariance_matrix)
+    except np.linalg.LinAlgError as e:
+        raise RuntimeError(f"Cholesky decomposition of matrix {covariance_matrix} failed!") from e
+
+    try:
+        chi = solve_triangular(cov_mat_cholesky, data - expectation, lower=True)
+    except ValueError as e:
+        raise ValueError(
+            f"Could not solve for cov_mat_cholesky={cov_mat_cholesky}"
+            f" and data-expectation difference {data - expectation}."
+        ) from e
+
+    chi_sq = np.inner(chi, chi)
+
+    assert isinstance(chi_sq, float), type(chi_sq)
+    p_val = chi2.sf(chi_sq, df=dof)
+    return chi_sq, dof, p_val

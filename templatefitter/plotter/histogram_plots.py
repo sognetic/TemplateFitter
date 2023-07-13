@@ -14,7 +14,6 @@ from uncertainties import unumpy as unp, ufloat
 from typing import Optional, Union, Tuple, List
 
 from templatefitter.plotter import plot_style
-from templatefitter.plotter.histogram import Histogram
 from templatefitter.plotter.plot_utilities import AxesType
 from templatefitter.plotter.histogram_variable import HistVariable
 from templatefitter.plotter.histogram_plot_base import HistogramPlot
@@ -24,7 +23,13 @@ from templatefitter.binned_distributions.binning import Binning, BinsInputType
 from templatefitter.binned_distributions.systematics import SystematicsInputType
 from templatefitter.binned_distributions.binned_distribution import DataInputType
 
-from templatefitter.stats import pearson_chi2_test, cowan_binned_likelihood_gof, toy_chi2_test, ToyInfoOutputType
+from templatefitter.stats import (
+    pearson_chi2_test,
+    cowan_binned_likelihood_gof,
+    toy_chi2_test,
+    ToyInfoOutputType,
+    kafe2_chi2_test,
+)
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 
@@ -56,7 +61,7 @@ class DataMCComparisonOutput:
 
     @staticmethod
     def valid_test_methods() -> Tuple[str, ...]:
-        valid_test_method_names = ("pearson", "cowan", "toys", "toys_inverted")  # type: Tuple[str, ...]
+        valid_test_method_names = ("pearson", "cowan", "toys", "toys_inverted", "kafe2")  # type: Tuple[str, ...]
         return valid_test_method_names
 
     @property
@@ -81,6 +86,7 @@ class SimpleHistogramPlot(HistogramPlot):
         weights: WeightsInputType = None,
         hist_type: Optional[str] = None,
         color: Optional[str] = None,
+        systematics: SystematicsInputType = None,
         alpha: float = 1.0,
     ) -> None:
         auto_histogram_key = f"hist_{self.number_of_histograms}"
@@ -89,7 +95,7 @@ class SimpleHistogramPlot(HistogramPlot):
             histogram_key=auto_histogram_key,
             data=data,
             weights=weights,
-            systematics=None,
+            systematics=systematics,
             hist_type=hist_type,
             color=color,
             alpha=alpha,
@@ -142,20 +148,23 @@ class StackedHistogramPlot(HistogramPlot):
     ) -> None:
         super().__init__(variable=variable)
 
+        self.mc_key = "stacked_histogram"
+
     def add_component(
         self,
         label: str,
         data: DataInputType,
         weights: WeightsInputType = None,
         color: Optional[str] = None,
+        systematics: SystematicsInputType = None,
         alpha: float = 1.0,
     ) -> None:
         self._add_component(
             label=label,
-            histogram_key="stacked_histogram",
+            histogram_key=self.mc_key,
             data=data,
             weights=weights,
-            systematics=None,
+            systematics=systematics,
             hist_type="stepfilled",
             color=color,
             alpha=alpha,
@@ -168,27 +177,48 @@ class StackedHistogramPlot(HistogramPlot):
         legend_inside: bool = True,
         y_axis_scale: float = 1.6,
         y_label: str = "Events",
+        with_uncertainties: bool = False,
     ) -> AxesType:
 
         if ax is None:
             _, ax = plt.subplots()
         self._last_figure = ax.get_figure()
 
-        histogram = list(self._histograms.histograms)[0]  # type: Histogram
+        mc_bin_count, mc_uncert_sq, stat_mc_uncert_sq, norm_factor = self.get_bin_info_for_component(
+            component_key=self.mc_key,
+            include_sys=with_uncertainties,
+        )  # type: np.ndarray, np.ndarray, np.ndarray, float
+
+        if len(self._histograms[self.mc_key].labels) > 1:
+            stacked_component_labels = self._histograms[self.mc_key].labels  # type: Tuple[str, ...]
+        else:
+            stacked_component_labels = tuple(
+                [h_label + r" $\times$ " + f"{norm_factor:.2f}" for h_label in self._histograms[self.mc_key].labels]
+            )
 
         ax.hist(
-            x=[histogram.binning.bin_mids[0] for _ in histogram.get_bin_counts()],
+            x=[self.bin_mids for _ in range(self._histograms[self.mc_key].number_of_components)],
             bins=self.bin_edges,
-            weights=histogram.get_bin_counts(),
+            weights=self._histograms[self.mc_key].get_bin_counts(),
             stacked=True,
             edgecolor="black",
             lw=0.3,
-            color=histogram.colors,
-            label=histogram.labels,  # type: ignore  # The type here is correct!
-            histtype=histogram.hist_type,
+            color=self._histograms[self.mc_key].colors,
+            label=stacked_component_labels,  # type: ignore  # The type here is correct!
+            histtype="stepfilled",
         )
-
-        # TODO: Include uncertainties if available and wanted!
+        if with_uncertainties:
+            ax.bar(
+                x=self.bin_mids,
+                height=2 * np.sqrt(mc_uncert_sq),
+                width=self.bin_widths,
+                bottom=mc_bin_count - np.sqrt(mc_uncert_sq),
+                color="black",
+                hatch="///////",
+                fill=False,
+                lw=0,
+                label="MC stat. + sys. unc.",
+            )
 
         ax.set_xlabel(self._variable.x_label, plot_style.xlabel_pos)
         ax.set_ylabel(self._get_y_label(normed=False, evts_or_cands=y_label), plot_style.ylabel_pos)
@@ -248,8 +278,10 @@ class DataMCHistogramBase(HistogramPlot):
         mc_bin_count: np.ndarray,
         data_bin_count: np.ndarray,
         total_mc_uncertainty_sq: np.ndarray,
+        stat_mc_uncertainty_sq: np.ndarray,
         mc_is_normalized_to_data: bool,
         mc_scale_factor: Optional[float] = None,
+        data_bin_mask: Optional[np.ndarray] = None,
     ) -> DataMCComparisonOutputType:
         if method is None:
             return None
@@ -257,14 +289,36 @@ class DataMCHistogramBase(HistogramPlot):
         if mc_is_normalized_to_data and mc_scale_factor is None:
             raise ValueError("If MC is normalized to data, please give a scale factor.")
 
-        dof = self.number_of_bins - 1 if mc_is_normalized_to_data else self.number_of_bins
+        dof = len(data_bin_count[data_bin_mask]) - 1 if mc_is_normalized_to_data else len(data_bin_count[data_bin_mask])
 
         if method.lower() == "pearson":
             chi2, ndf, p_val = pearson_chi2_test(
-                data=data_bin_count,
-                expectation=mc_bin_count,
+                data=data_bin_count[data_bin_mask],
+                expectation=mc_bin_count[data_bin_mask],
                 dof=dof,
-                error=np.sqrt(total_mc_uncertainty_sq + mc_bin_count),
+                error=np.sqrt(total_mc_uncertainty_sq[data_bin_mask] + mc_bin_count[data_bin_mask]),
+            )
+            return DataMCComparisonOutput(
+                chi2=chi2,
+                ndf=ndf,
+                p_val=p_val,
+                test_method=method,
+                toy_output=None,
+                mc_scale_factor=mc_scale_factor if mc_is_normalized_to_data else None,
+            )
+
+        data_err_sq = np.where(data_bin_count >= 1, data_bin_count, np.ones(data_bin_count.shape))  # type: np.ndarray
+        covmat = self._histograms[self.mc_key].get_systematics_covariance_matrix()
+        if method.lower() == "kafe2":
+            chi2, ndf, p_val = kafe2_chi2_test(
+                data=data_bin_count[data_bin_mask],
+                expectation=mc_bin_count[data_bin_mask],
+                dof=dof,
+                covariance_matrix=(
+                    covmat[np.ix_(data_bin_mask, data_bin_mask)]
+                    + np.diag(stat_mc_uncertainty_sq[data_bin_mask])
+                    + np.diag(data_err_sq[data_bin_mask])
+                ),
             )
             return DataMCComparisonOutput(
                 chi2=chi2,
@@ -275,7 +329,9 @@ class DataMCHistogramBase(HistogramPlot):
                 mc_scale_factor=mc_scale_factor if mc_is_normalized_to_data else None,
             )
         elif method.lower() == "cowan":
-            chi2, ndf, p_val = cowan_binned_likelihood_gof(data=data_bin_count, expectation=mc_bin_count, dof=dof)
+            chi2, ndf, p_val = cowan_binned_likelihood_gof(
+                data=data_bin_count[data_bin_mask], expectation=mc_bin_count[data_bin_mask], dof=dof
+            )
             return DataMCComparisonOutput(
                 chi2=chi2,
                 ndf=ndf,
@@ -285,12 +341,11 @@ class DataMCHistogramBase(HistogramPlot):
                 mc_scale_factor=mc_scale_factor if mc_is_normalized_to_data else None,
             )
         elif method.lower() == "toys":
-            data_err_sq = np.where(data_bin_count >= 1, data_bin_count, np.ones(data_bin_count.shape))  # type: np.ndarray
             chi2, p_val, toy_output = toy_chi2_test(
-                data=data_bin_count,
-                expectation=mc_bin_count,
-                error=data_err_sq,
-                mc_cov=self._histograms[self.mc_key].get_covariance_matrix() + np.diag(data_err_sq),
+                data=data_bin_count[data_bin_mask],
+                expectation=mc_bin_count[data_bin_mask],
+                error=data_err_sq[data_bin_mask],
+                mc_cov=covmat[np.ix_(data_bin_mask, data_bin_mask)] + np.diag(data_err_sq[data_bin_mask]),
                 use_text_book_approach=True,
             )
             return DataMCComparisonOutput(
@@ -303,10 +358,12 @@ class DataMCHistogramBase(HistogramPlot):
             )
         elif method.lower() == "toys_inverted":
             chi2, p_val, toy_output = toy_chi2_test(
-                data=data_bin_count,
-                expectation=mc_bin_count,
-                error=np.where(data_bin_count >= 1, data_bin_count, np.ones(data_bin_count.shape)),
-                mc_cov=self._histograms[self.mc_key].get_covariance_matrix(),
+                data=data_bin_count[data_bin_mask],
+                expectation=mc_bin_count[data_bin_mask],
+                error=np.where(data_bin_count >= 1, data_bin_count, np.ones(data_bin_count.shape))[data_bin_mask],
+                mc_cov=self._histograms[self.mc_key].get_systematics_covariance_matrix()[
+                    np.ix_(data_bin_mask, data_bin_mask)
+                ],
             )
             return DataMCComparisonOutput(
                 chi2=chi2,
@@ -361,7 +418,7 @@ class DataMCHistogramBase(HistogramPlot):
 
             divisor[divisor == 0] = ufloat(0.01, 0.1)
             ratio = (uh_data - uh_mc) / divisor
-            ratio[(uh_data == 0.0) & (uh_mc == 0.0)] = ufloat(0.0, 0.0)
+            ratio[(uh_data == 0.0)] = ufloat(0.0, 0.0)
 
             if ratio_type.lower() == "normal":
                 ratio[np.logical_xor((uh_data == 0.0), (uh_mc == 0.0))] = ufloat(-99, 0.0)
@@ -442,8 +499,7 @@ class DataMCHistogramBase(HistogramPlot):
                         va="bottom",
                     )
                 elif data_val == 0.0 and (
-                    (mc_val != 0.0 and ratio_type.lower() != "vs_uncert")
-                    or (abs(r_val) > max_val and ratio_type.lower() == "vs_uncert")
+                    (mc_val != 0.0 and ratio_type.lower() != "vs_uncert") or (ratio_type.lower() == "vs_uncert")
                 ):
                     axis.text(
                         x=bin_mid,
@@ -488,59 +544,6 @@ class DataMCHistogramBase(HistogramPlot):
                 va="bottom",
             )
             axis.axhline(y=0, color=plot_style.KITColors.dark_grey, alpha=0.8)
-
-    def get_bin_info_for_component(
-        self,
-        component_key: Optional[str] = None,
-        data_key: Optional[str] = None,
-        normalize_to_data: bool = False,
-        include_sys: bool = False,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
-        if component_key is None:
-            component_key = self.mc_key
-        if component_key not in self._histograms.histogram_keys:
-            raise KeyError(
-                f"Histogram key '{component_key}' was not added to the {self.__class__.__name__} "
-                f"instance!\nAvailable histogram keys are: {self._histograms.histogram_keys}"
-            )
-
-        if data_key is None:
-            data_key = self.data_key
-        if data_key not in self._histograms.histogram_keys:
-            raise KeyError(
-                f"Histogram key '{data_key}' was not added to the {self.__class__.__name__} "
-                f"instance!\nAvailable histogram keys are: {self._histograms.histogram_keys}"
-            )
-
-        # Making mypy happy with extra np array call
-        component_bin_count = np.array(np.sum(np.array(self._histograms[component_key].get_bin_counts()), axis=0))
-
-        if not normalize_to_data:
-            norm_factor = None  # type: None
-        else:
-            norm_factor = (
-                self._histograms[data_key].raw_data_size / self._histograms[component_key].raw_weight_sum
-            )  # type: float
-            component_bin_count *= norm_factor
-
-        component_stat_uncert_sq = self._histograms[component_key].get_statistical_uncertainty_per_bin(
-            normalization_factor=norm_factor
-        )
-        component_uncert_sq = copy.deepcopy(component_stat_uncert_sq)
-
-        if include_sys:
-            sys_uncertainty_squared = self._histograms[component_key].get_systematic_uncertainty_per_bin()
-            if sys_uncertainty_squared is not None:
-                component_uncert_sq += sys_uncertainty_squared
-
-        assert len(component_bin_count.shape) == 1, component_bin_count.shape
-        assert component_bin_count.shape[0] == self.number_of_bins, (component_bin_count.shape, self.number_of_bins)
-        assert component_bin_count.shape == component_uncert_sq.shape, (
-            component_bin_count.shape,
-            component_uncert_sq.shape,
-        )
-
-        return component_bin_count, component_uncert_sq, component_stat_uncert_sq, norm_factor
 
     @staticmethod
     def _check_style_settings_input(
@@ -635,7 +638,7 @@ class DataMCHistogramPlot(DataMCHistogramBase):
         if self.data_key in self._histograms.histogram_keys:
             raise RuntimeError(f"A data component has already been added to {self.__class__.__name__} instance!")
         if special_binning:
-            if not self._special_binning:
+            if self._special_binning is None:
                 self._special_binning = special_binning
             else:
                 assert self._special_binning == special_binning, (self._special_binning, special_binning)
@@ -662,7 +665,7 @@ class DataMCHistogramPlot(DataMCHistogramBase):
         special_binning: Union[None, BinsInputType, Binning] = None,
     ) -> None:
         if special_binning:
-            if not self._special_binning:
+            if self._special_binning is None:
                 self._special_binning = special_binning
             else:
                 assert self._special_binning == special_binning, (self._special_binning, special_binning)
@@ -736,8 +739,6 @@ class DataMCHistogramPlot(DataMCHistogramBase):
                 minimal_number_of_bins=7,
             )
 
-        bin_scaling = self.binning.get_bin_scaling()  # type: np.ndarray
-
         mc_bin_count, mc_uncert_sq, stat_mc_uncert_sq, norm_factor = self.get_bin_info_for_component(
             component_key=self.mc_key,
             data_key=self.data_key,
@@ -771,7 +772,7 @@ class DataMCHistogramPlot(DataMCHistogramBase):
                 x=self.bin_mids,
                 height=2 * np.sqrt(mc_uncert_sq),
                 width=self.bin_widths,
-                bottom=mc_bin_count * bin_scaling - np.sqrt(mc_uncert_sq),
+                bottom=mc_bin_count - np.sqrt(mc_uncert_sq),
                 color="black",
                 hatch="///////",
                 fill=False,
@@ -783,7 +784,7 @@ class DataMCHistogramPlot(DataMCHistogramBase):
                 x=self.bin_mids,
                 height=2 * np.sqrt(mc_uncert_sq),
                 width=self.bin_widths,
-                bottom=mc_bin_count * bin_scaling - np.sqrt(mc_uncert_sq),
+                bottom=mc_bin_count - np.sqrt(mc_uncert_sq),
                 color=sum_color,
                 lw=0,
                 label="MC" if not normalize_to_data else r"MC $\times$ " + f"{norm_factor:.2f}",
@@ -793,7 +794,7 @@ class DataMCHistogramPlot(DataMCHistogramBase):
 
         ax1.errorbar(
             x=self.bin_mids,
-            y=data_bin_count * bin_scaling,
+            y=data_bin_count,
             yerr=np.sqrt(data_bin_count),
             xerr=self.bin_widths / 2 if markers_with_width else None,
             ls="",
@@ -808,13 +809,15 @@ class DataMCHistogramPlot(DataMCHistogramBase):
                 mc_bin_count=mc_bin_count,
                 data_bin_count=data_bin_count,
                 total_mc_uncertainty_sq=mc_uncert_sq,
+                stat_mc_uncertainty_sq=stat_mc_uncert_sq,
                 mc_is_normalized_to_data=normalize_to_data,
                 mc_scale_factor=norm_factor,
+                data_bin_mask=data_bin_count != 0.0,
             )  # type: DataMCComparisonOutputType
-        except IndexError:
+        except (IndexError, np.linalg.LinAlgError, ValueError) as e:
             logging.warning(
                 f"Could not run goodness of fit check with {gof_check_method} method "
-                f"for variable {self.variable.df_label}! Reverting to check with pearson method!"
+                f"for variable {self.variable.df_label}! Reverting to check with pearson method! \n (Error: {e}) "
             )
             comparison_output = self.do_goodness_of_fit_test(
                 method="pearson",
@@ -822,8 +825,12 @@ class DataMCHistogramPlot(DataMCHistogramBase):
                 data_bin_count=data_bin_count,
                 total_mc_uncertainty_sq=mc_uncert_sq,
                 mc_is_normalized_to_data=normalize_to_data,
+                stat_mc_uncertainty_sq=stat_mc_uncert_sq,
                 mc_scale_factor=norm_factor,
+                data_bin_mask=data_bin_count != 0.0,
             )
+
+        logging.info(comparison_output)
 
         if draw_legend:
             if style == "stacked":
@@ -862,6 +869,17 @@ class DataMCHistogramPlot(DataMCHistogramBase):
             include_outlier_info=True,
             plot_outlier_indicators=plot_outlier_indicators,
         )
+
+        extra_text = ""
+        if self.additional_text is not None:
+            extra_text += self.additional_text
+        if comparison_output is not None:
+            if extra_text:
+                extra_text += "\n"
+            extra_text += fr"$\chi^2 / {comparison_output.ndf} = {comparison_output.chi2 / comparison_output.ndf:.2f}$"
+
+        if extra_text:
+            self.draw_info_text(axis=ax1, fig=ax1.get_figure(), this_additional_info_str=extra_text)
 
         plt.subplots_adjust(hspace=0.08)
 

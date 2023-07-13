@@ -212,9 +212,9 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
             )
             comparison_output = self.do_goodness_of_fit_test(
                 method="pearson",
-                mc_bin_count=mc_sum_bin_count,
-                data_bin_count=data_bin_count,
-                total_mc_uncertainty_sq=mc_sum_bin_error_sq,
+                mc_bin_count=mc_sum_bin_count[data_bin_count != 0],
+                data_bin_count=data_bin_count[data_bin_count != 0],
+                total_mc_uncertainty_sq=mc_sum_bin_error_sq[data_bin_count != 0],
                 mc_is_normalized_to_data=False,
             )
 
