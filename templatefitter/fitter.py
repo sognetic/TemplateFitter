@@ -73,7 +73,7 @@ class TemplateFitter:
         processes_with_fixed_nui: Optional[List[str]] = None,
         parameters_to_fix: Optional[Sequence[Union[str, int]]] = None,
         use_simplex: bool = False,
-        profile_parameter: Optional[str] = None,
+        profile_parameter: Optional[List[str]] = None,
         set_parameters_to_values: Optional[Dict[Union[str, int], float]] = None,
     ) -> MinimizeResult:
         """
@@ -283,6 +283,11 @@ class TemplateFitter:
         minimum = result.fcn_min_val
         param_val, param_unc = result.params[profiled_param_id]
 
+        minos_errors = result.params.get_asymmetric_error(profiled_param_id)
+        if minos_errors[0] != 0.0 and minos_errors[1] != 0:
+            logging.warning(f"Using Minos errors in profiling plot of parameter {profiled_param_id}.")
+            param_unc = (abs(minos_errors[0]) + abs(minos_errors[1])) / 2
+
         profile_points = np.linspace(param_val - sigma * param_unc, param_val + sigma * param_unc, num_points)
 
         hesse_approx = self._get_hesse_approx(
@@ -372,6 +377,7 @@ class TemplateFitter:
         fix_nui_params: bool = False,
         catch_exception: bool = False,
         reuse_last_fit_result: bool = False,
+        reference_value: float = 0.0,
     ) -> float:
         """
         Calculate significance for the specified yield parameter using the profile likelihood ratio.
@@ -437,7 +443,7 @@ class TemplateFitter:
             return 0.0
 
         # set signal of template related to the specified yield_parameter to zero and profile the likelihood
-        self._fit_model.set_initial_parameter_value(parameter_name=yield_parameter, new_initial_value=0.0)
+        self._fit_model.set_initial_parameter_value(parameter_name=yield_parameter, new_initial_value=reference_value)
         self._fit_model.reset_parameters_to_initial_values()
 
         minimizer_bkg = minimizer_factory(
@@ -476,7 +482,7 @@ class TemplateFitter:
             else:
                 raise ie
 
-        assert profile_result.params[yield_parameter][0] == 0.0, profile_result.params[yield_parameter][0]
+        assert profile_result.params[yield_parameter][0] == reference_value, profile_result.params[yield_parameter][0]
 
         q0 = 2 * (profile_result.fcn_min_val - fit_result.fcn_min_val)
 

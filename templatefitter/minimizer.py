@@ -255,7 +255,7 @@ class MinimizerParameters:
         self._up_errors[param_index] = new_up_error
         self._dn_errors[param_index] = new_down_error
 
-    def get_asymmetric_error(self, param_id: Union[int, str, np.integer]):
+    def get_asymmetric_error(self, param_id: Union[int, str, np.integer]) -> Tuple[float, float]:
 
         param_index = self.param_id_to_index(param_id=param_id)
         return self._up_errors[param_index], self._dn_errors[param_index]
