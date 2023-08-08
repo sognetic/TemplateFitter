@@ -15,7 +15,7 @@ from templatefitter.fit_model.data_channel import DataChannelContainer
 
 from templatefitter.plotter import plot_style
 from templatefitter.plotter.histogram_variable import HistVariable
-from templatefitter.plotter.histogram_plot_base import HistogramPlot
+from templatefitter.plotter.histogram_plot_base import HistogramPlot, draw_info_text
 from templatefitter.plotter.plot_utilities import FigureType, AxesType
 
 from templatefitter.fit_model.model_builder import FitModel
@@ -515,16 +515,4 @@ class FitPlotterBase(ABC):
                     f"but object of type {type(additional_info_str).__name__} was provided."
                 )
 
-            fig.canvas.draw()  # Figure needs to be drawn so that the relative coordinates can be calculated.
-
-            legend_pos = axis.get_legend().get_window_extent()
-            legend_left_lower_edge_pos_in_ax_coords = axis.transAxes.inverted().transform(legend_pos.min)
-            axis.text(
-                x=legend_left_lower_edge_pos_in_ax_coords[0],
-                y=legend_left_lower_edge_pos_in_ax_coords[1],
-                s=this_additional_info_str,
-                transform=axis.transAxes,
-                va="top",
-                ha="left",
-                linespacing=1.5,
-            )
+            draw_info_text(axis=axis, fig=fig, this_additional_info_str=this_additional_info_str)

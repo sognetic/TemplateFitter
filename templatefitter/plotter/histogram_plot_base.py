@@ -7,6 +7,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from matplotlib import pyplot as plt
 from typing import Optional, Union, Any, Tuple
+import copy
 
 from templatefitter.utility import PathType
 from templatefitter.binned_distributions.binning import Binning, BinsInputType
@@ -42,6 +43,7 @@ class HistogramPlot(ABC):
         self._histograms = HistogramContainer()  # type: HistogramContainer
 
         self._last_figure = None  # type: Optional[FigureType]
+        self.additional_text = None
 
     @abstractmethod
     def plot_on(self, *args, **kwargs) -> Union[AxesType, Tuple[FigureType, Tuple[AxesType, AxesType]], Any]:
@@ -86,11 +88,13 @@ class HistogramPlot(ABC):
         bin_counts: np.ndarray,
         original_binning: Binning,
         bin_errors_squared: np.ndarray = None,
+        bin_correlation_matrix: np.ndarray = None,
         data_column_names: DataColumnNamesInput = None,
         hist_type: Optional[str] = None,
         color: Optional[str] = None,
         alpha: float = 1.0,
     ) -> None:
+
         if histogram_key not in self._histograms.histogram_keys:
             new_histogram = Histogram(variable=self.variable, hist_type=hist_type, special_binning=original_binning)
             self._histograms.add_histogram(key=histogram_key, histogram=new_histogram)
@@ -107,11 +111,19 @@ class HistogramPlot(ABC):
                     f"Should be None, str or List[str], but is {type(data_column_names)}!"
                 )
 
+        if bin_correlation_matrix is not None:
+            if bin_correlation_matrix.shape != (len(bin_counts), len(bin_counts)):
+                raise ValueError(
+                    f"Given bin correlation matrix shape ({bin_correlation_matrix.shape}) doesn't match "
+                    f"number of bin counts ({len(bin_counts)})."
+                )
+
         self._histograms[histogram_key].add_histogram_component(
             label=label,
             bin_counts=bin_counts,
             original_binning=original_binning,
             bin_errors_squared=bin_errors_squared,
+            bin_correlation_matrix=bin_correlation_matrix,
             data_column_names=self.variable.df_label,
             color=color,
             alpha=alpha,
@@ -192,6 +204,64 @@ class HistogramPlot(ABC):
                 bc=")" if self._variable.unit else "",
             )
 
+    def get_bin_info_for_component(
+        self,
+        component_key: Optional[str] = None,
+        data_key: Optional[str] = None,
+        normalize_to_data: bool = False,
+        include_sys: bool = False,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+        if component_key is None:
+            component_key = self.mc_key
+        if component_key not in self._histograms.histogram_keys:
+            raise KeyError(
+                f"Histogram key '{component_key}' was not added to the {self.__class__.__name__} "
+                f"instance!\nAvailable histogram keys are: {self._histograms.histogram_keys}"
+            )
+
+        if normalize_to_data:
+            if data_key is None:
+                data_key = self.data_key
+            if data_key not in self._histograms.histogram_keys:
+                raise KeyError(
+                    f"Histogram key '{data_key}' was not added to the {self.__class__.__name__} "
+                    f"instance!\nAvailable histogram keys are: {self._histograms.histogram_keys}"
+                )
+
+        # Making mypy happy with extra np array call
+        component_bin_count = np.array(np.sum(np.array(self._histograms[component_key].get_bin_counts()), axis=0))
+
+        if not normalize_to_data:
+            norm_factor = None  # type: None
+        else:
+            norm_factor = (
+                self._histograms[data_key].raw_data_size / self._histograms[component_key].raw_weight_sum
+            )  # type: float
+            component_bin_count *= norm_factor
+
+        component_stat_uncert_sq = self._histograms[component_key].get_statistical_uncertainty_per_bin(
+            normalization_factor=norm_factor
+        )
+        component_uncert_sq = copy.deepcopy(component_stat_uncert_sq)
+
+        if include_sys:
+            try:
+                sys_uncertainty_squared = self._histograms[component_key].get_systematic_uncertainty_per_bin()
+            except NotImplementedError:
+                logging.warning(f"Cannot get systematic uncertainty for component {component_key}, skipping")
+                sys_uncertainty_squared = None
+            if sys_uncertainty_squared is not None:
+                component_uncert_sq += sys_uncertainty_squared
+
+        assert len(component_bin_count.shape) == 1, component_bin_count.shape
+        assert component_bin_count.shape[0] == self.number_of_bins, (component_bin_count.shape, self.number_of_bins)
+        assert component_bin_count.shape == component_uncert_sq.shape, (
+            component_bin_count.shape,
+            component_uncert_sq.shape,
+        )
+
+        return component_bin_count, component_uncert_sq, component_stat_uncert_sq, norm_factor
+
     def draw_legend(
         self,
         axis: AxesType,
@@ -226,3 +296,24 @@ class HistogramPlot(ABC):
 
     def write_hist_data_to_file(self, file_path: PathType):
         self._histograms.write_to_file(file_path=file_path)
+
+    def draw_info_text(self, axis: AxesType, fig: FigureType, this_additional_info_str: str):
+
+        draw_info_text(axis=axis, fig=fig, this_additional_info_str=this_additional_info_str)
+
+
+def draw_info_text(axis: AxesType, fig: FigureType, this_additional_info_str: str) -> None:
+
+    fig.canvas.draw()  # Figure needs to be drawn so that the relative coordinates can be calculated.
+
+    legend_pos = axis.get_legend().get_window_extent()
+    legend_left_lower_edge_pos_in_ax_coords = axis.transAxes.inverted().transform(legend_pos.min)
+    axis.text(
+        x=legend_left_lower_edge_pos_in_ax_coords[0] * 0.95,
+        y=legend_left_lower_edge_pos_in_ax_coords[1],
+        s=this_additional_info_str,
+        transform=axis.transAxes,
+        va="top",
+        ha="left",
+        linespacing=1.5,
+    )

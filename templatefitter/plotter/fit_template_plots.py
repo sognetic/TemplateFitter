@@ -90,7 +90,6 @@ class FitTemplatePlot(FitPlotBase):
         legend_loc: Optional[Union[int, str]] = None,
         y_scale: float = 1.1,
     ) -> None:
-        self._check_required_histograms()
 
         template_bin_counts = self._histograms[self.hist_key].get_bin_counts()
         assert isinstance(template_bin_counts, list) and len(template_bin_counts) == 1, template_bin_counts

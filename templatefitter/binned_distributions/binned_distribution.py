@@ -14,7 +14,7 @@ import pandas as pd
 from abc import ABC, abstractmethod
 from typing import Union, Optional, Tuple, List, NamedTuple, Sequence
 
-from templatefitter.utility import cov2corr
+from templatefitter.utility import cov2corr, corr2cov
 from templatefitter.binned_distributions.weights import Weights, WeightsInputType
 from templatefitter.binned_distributions.systematics import SystematicsInfo, SystematicsInputType
 from templatefitter.binned_distributions.binning import (
@@ -595,6 +595,7 @@ class BinnedDistributionFromHistogram(BinnedDistribution):
         name: Optional[str] = None,
         data: Optional[DataInputType] = None,
         bin_errors_squared: Optional[np.ndarray] = None,
+        bin_correlation_matrix: Optional[np.ndarray] = None,
     ) -> None:
         super().__init__(
             bins=bins,
@@ -606,8 +607,7 @@ class BinnedDistributionFromHistogram(BinnedDistribution):
 
         if data is not None:
             self.fill(
-                input_data=data,
-                bin_errors_squared=bin_errors_squared,
+                input_data=data, bin_errors_squared=bin_errors_squared, bin_correlation_matrix=bin_correlation_matrix
             )
 
     def fill(
@@ -616,6 +616,7 @@ class BinnedDistributionFromHistogram(BinnedDistribution):
         weights: WeightsInputType = None,
         systematics: SystematicsInputType = None,
         bin_errors_squared: Optional[np.ndarray] = None,
+        bin_correlation_matrix: Optional[np.ndarray] = None,
     ) -> None:
         assert self.is_empty
 
@@ -639,6 +640,19 @@ class BinnedDistributionFromHistogram(BinnedDistribution):
         bin_counts, bin_errors_sq = self.get_data_input(in_data=input_data, bin_errors_squared=bin_errors_squared)
         self._bin_counts = bin_counts
         self._bin_errors_sq = bin_errors_sq
+
+        if bin_correlation_matrix is not None:
+            assert len(bin_correlation_matrix.shape) == 2, bin_correlation_matrix.shape
+            assert bin_correlation_matrix.shape[0] == bin_correlation_matrix.shape[1], bin_correlation_matrix.shape
+            assert bin_correlation_matrix.shape[0] == self.num_bins_total, (
+                bin_correlation_matrix.shape[0],
+                self.num_bins_total,
+            )
+            assert np.allclose(
+                bin_correlation_matrix, bin_correlation_matrix.T, rtol=1e-05, atol=1e-08
+            ), bin_correlation_matrix  # Checking if bin_correlation_matrix is symmetric.
+
+        self._bin_correlation_matrix = bin_correlation_matrix
 
         self.is_empty = False
 
@@ -722,21 +736,21 @@ class BinnedDistributionFromHistogram(BinnedDistribution):
 
     @property
     def bin_covariance_matrix(self) -> np.ndarray:
-        # TODO: Maybe make this also available for the BinnedDistributionFromHistogram variant!
-        raise NotImplementedError(
-            "The bin_covariance_matrix property is not available for "
-            "BinnedDistributionFromHistogram which have been initialized from an already "
-            "binned distribution.\nWhat you are trying to attempt is not possible."
-        )
+        if self._bin_covariance_matrix is not None:
+            return self._bin_covariance_matrix
+
+        self._bin_covariance_matrix = corr2cov(self.bin_correlation_matrix, self._bin_errors_sq)
+        return self._bin_covariance_matrix
 
     @property
     def bin_correlation_matrix(self) -> np.ndarray:
-        # TODO: Maybe make this also available for the BinnedDistributionFromHistogram variant!
-        raise NotImplementedError(
-            "The bin_correlation_matrix property is not available for "
-            "BinnedDistributionFromHistogram which have been initialized from an already "
-            "binned distribution.\nWhat you are trying to attempt is not possible."
-        )
+        if self._bin_covariance_matrix is None:
+            raise RuntimeError(
+                f"This instance of {self.__class__.__name__}"
+                " has been filled without a correlation matrix so we can't return one."
+            )
+
+        return self._bin_correlation_matrix
 
     def bin_errors_sq_with_normalization(
         self,

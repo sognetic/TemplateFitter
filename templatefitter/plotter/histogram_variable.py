@@ -8,6 +8,7 @@ import pandas as pd
 
 from math import floor, log10
 from typing import Union, Optional, Tuple, List, Sequence
+from templatefitter.binned_distributions import Binning
 
 __all__ = [
     "HistVariable",
@@ -45,7 +46,7 @@ class HistVariable:
         self._scope = scope  # type: Optional[Tuple[float, float]]
 
         self._var_name = "" if var_name is None else var_name  # type: str
-        self._x_label = self._var_name if unit is None else self._var_name + f" in {unit}"  # type: str
+        self._x_label = self._var_name if unit is None else self._var_name + f" [{unit}]"  # type: str
 
         self._unit = unit  # type: Optional[str]
         self._use_log_scale = use_log_scale  # type: bool
@@ -149,6 +150,10 @@ class HistVariable:
         """
         return self._use_log_scale
 
+    def __repr__(self) -> str:
+
+        return f"HistVariable({', '.join(self.as_string_list)})"
+
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, HistVariable):
             raise TypeError(
@@ -242,3 +247,7 @@ class HistVariable:
         correction = 0.5 * round(abs(upper - lower), precision)
         assert not np.isnan(correction), correction
         return round(lower - correction, precision), round(upper + correction, precision)
+
+    def get_binning_object(self) -> Binning:
+
+        return Binning(bins=self.n_bins, dimensions=1, scope=self.scope, log_scale=self.use_log_scale)

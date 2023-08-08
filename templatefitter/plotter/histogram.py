@@ -187,13 +187,14 @@ class Histogram:
         )
 
     def get_systematic_uncertainty_per_bin(self) -> Optional[np.ndarray]:
-        cov = self.get_covariance_matrix()
+        cov = self.get_systematics_covariance_matrix()
         if cov is not None:
             return np.diagonal(cov)
         else:
+            logging.warning(f"No covariance matrix available for histogram of variable {self.variable.variable_name}.")
             return None
 
-    def get_covariance_matrix(self) -> np.ndarray:
+    def get_systematics_covariance_matrix(self) -> np.ndarray:
         if self._covariance_matrix is not None:
             if self._binning_used_for_covariance_matrix == self.binning:
                 return self._covariance_matrix
@@ -331,12 +332,8 @@ class Histogram:
 
     def _init_hist_binning(self, special_binning: Union[None, BinsInputType, Binning]) -> Binning:
         if special_binning is None:
-            _binning = Binning(
-                bins=self.variable.n_bins,
-                dimensions=1,
-                scope=self.variable.scope,
-                log_scale=self.variable.use_log_scale,
-            )  # type: Binning
+            _binning = self.variable.get_binning_object()  # type: Binning
+            assert _binning is not None
         else:
             if isinstance(special_binning, Binning):
                 assert special_binning.dimensions == 1, special_binning.dimensions
