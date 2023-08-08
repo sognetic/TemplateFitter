@@ -18,7 +18,12 @@ from templatefitter.binned_distributions.binned_distribution import DataColumnNa
 from templatefitter.plotter import plot_style
 from templatefitter.plotter.plot_utilities import export, AxesType, FigureType
 from templatefitter.plotter.histogram_variable import HistVariable
-from templatefitter.plotter.histogram_plots import DataMCHistogramBase, DataMCComparisonOutput, DataMCComparisonOutputType
+from templatefitter.plotter.histogram_plots import (
+    DataMCHistogramBase,
+    DataMCComparisonOutput,
+    DataMCComparisonOutputType,
+    DataMCComparisonInput,
+)
 from templatefitter.plotter.fit_plots_base import FitPlotBase, FitPlotterBase
 from templatefitter.plotter.plot_utilities import add_hierarchical_axes_to_plot
 
@@ -34,9 +39,6 @@ __all__ = [
 ]
 
 plot_style.set_matplotlibrc_params()
-
-
-# TODO: Option to add Chi2 test
 
 
 class FitResultPlot(FitPlotBase, DataMCHistogramBase):
@@ -100,8 +102,16 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
         markers_with_width: bool = True,
         plot_outlier_indicators: bool = True,
         y_scale: float = 1.3,
+        data_mc_comparison: Optional[DataMCComparisonOutput] = None,
+        binwise_correlation: Optional[np.ndarray] = None,
         **kwargs,
     ) -> DataMCComparisonOutputType:
+
+        if data_mc_comparison is not None and gof_check_method is not None:
+            raise RuntimeError(
+                "Either pass a comparison object to the plot via the 'data_mc_comparison' argument or "
+                "request the plot to create one via the 'gof_check_method' argument. Don't do both."
+            )
 
         ax1, ax2 = self._check_axes_input(ax1=ax1, ax2=ax2)
         self._check_required_histograms()
@@ -197,26 +207,35 @@ class FitResultPlot(FitPlotBase, DataMCHistogramBase):
             label=self._histograms[self.data_key].labels[0],
         )
 
-        try:
-            comparison_output = self.do_goodness_of_fit_test(
-                method=gof_check_method,
-                mc_bin_count=mc_sum_bin_count,
-                data_bin_count=data_bin_count,
-                total_mc_uncertainty_sq=mc_sum_bin_error_sq,
-                mc_is_normalized_to_data=False,
-            )  # type: DataMCComparisonOutputType
-        except IndexError:
-            logging.warning(
-                f"Could not run goodness of fit check with {gof_check_method} method "
-                f"for variable {self.variable.df_label}! Reverting to check with pearson method!"
+        if gof_check_method is not None:
+            comparison_input = DataMCComparisonInput(
+                expectation=mc_sum_bin_count,
+                observation=data_bin_count,
+                test_method=gof_check_method,
+                sys_uncertainties_sq=mc_sum_bin_error_sq - stat_mc_uncert_sq,
+                mc_stat_uncertainty_sq=stat_mc_uncert_sq,
+                data_bin_mask=data_bin_count != 0,
+                systematics_covariance_matrix=binwise_correlation,
             )
-            comparison_output = self.do_goodness_of_fit_test(
-                method="pearson",
-                mc_bin_count=mc_sum_bin_count[data_bin_count != 0],
-                data_bin_count=data_bin_count[data_bin_count != 0],
-                total_mc_uncertainty_sq=mc_sum_bin_error_sq[data_bin_count != 0],
-                mc_is_normalized_to_data=False,
-            )
+
+            try:
+
+                comparison_output = self.do_goodness_of_fit_test(
+                    comparison_input=comparison_input,
+                    mc_is_normalized_to_data=False,
+                )  # type: DataMCComparisonOutputType
+            except IndexError:
+                logging.warning(
+                    f"Could not run goodness of fit check with {gof_check_method} method "
+                    f"for variable {self.variable.df_label}! Reverting to check with pearson method!"
+                )
+                comparison_input.test_method = "pearson"
+                comparison_output = self.do_goodness_of_fit_test(
+                    comparison_input=comparison_input,
+                    mc_is_normalized_to_data=False,
+                )
+        else:
+            comparison_output = data_mc_comparison
 
         if draw_legend:
             if style == "stacked":
@@ -290,6 +309,8 @@ class FitResultPlotter(FitPlotterBase):
         reference_dimension: int = 0,
         fig_size: Tuple[float, float] = (5, 5),
         include_sys: bool = False,
+        add_goodness_of_fit: bool = True,
+        add_outlier_indicators: bool = True,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -303,6 +324,9 @@ class FitResultPlotter(FitPlotterBase):
         self._plotter_class = FitResultPlot  # type: Type[FitPlotBase]
         self.mc_key = FitResultPlot.mc_key  # type: str
         self.data_key = FitResultPlot.data_key  # type: str
+
+        self.add_goodness_of_fit = add_goodness_of_fit
+        self.add_outlier_indicators = add_outlier_indicators
 
     def plot_fit_result(
         self,
@@ -399,6 +423,8 @@ class FitResultPlotter(FitPlotterBase):
                     ratio_type="vs_uncert",
                     include_sys=self._include_sys,
                     gof_check_method="pearson" if not use_initial_values else None,
+                    y_scale=1.7,
+                    plot_outlier_indicators=self.add_outlier_indicators,
                 )
 
                 if bin_info_pos == "left" or sub_bin_info_text is None:
@@ -425,7 +451,7 @@ class FitResultPlotter(FitPlotterBase):
                         loc="right",
                     )
                     main_ax.set_title(
-                        "Belle II Own Work", loc="left", fontdict={"size": 10, "style": "normal", "weight": "bold"}
+                        "Belle II Preliminary", loc="left", fontdict={"size": 10, "style": "normal", "weight": "bold"}
                     )
 
                 if isinstance(data_mc_comparison, DataMCComparisonOutput):
@@ -463,6 +489,42 @@ class FitResultPlotter(FitPlotterBase):
             raise ValueError(
                 "Parameter 'output_name_tag' and 'output_dir_path' must either both be provided or both set to None!"
             )
+
+        observation = self._fit_model._data_channels.get_data_bin_count_matrix().flatten()
+
+        expectation = None
+        covmat = None
+        mc_stats_sq = None
+        for mc_channel in self._fit_model.mc_channels_to_plot:
+            for templ in mc_channel.templates_in_plot_order:
+                if expectation is None:
+                    expectation = templ.expected_bin_counts(use_initial_values=use_initial_values).flatten()
+                    covmat = templ.bin_covariance_matrix
+                    mc_stats_sq = templ.expected_bin_errors_squared(use_initial_values=use_initial_values).flatten()
+                else:
+                    expectation += templ.expected_bin_counts(use_initial_values=use_initial_values).flatten()
+                    covmat += templ.bin_covariance_matrix
+                    mc_stats_sq += templ.expected_bin_errors_squared(use_initial_values=use_initial_values).flatten()
+
+        comparison_input = DataMCComparisonInput(
+            expectation=expectation,
+            observation=observation,
+            test_method="kafe2" if use_initial_values else "pearson",
+            mc_stat_uncertainty_sq=mc_stats_sq,
+            systematics_covariance_matrix=covmat,
+        )
+
+        try:
+            comparison_output = DataMCHistogramBase.do_goodness_of_fit_test(
+                comparison_input=comparison_input,
+                mc_is_normalized_to_data=not use_initial_values,
+            )  # type: DataMCComparisonOutputType
+        except IndexError:
+            comparison_input.test_method = "pearson"
+            comparison_output = DataMCHistogramBase.do_goodness_of_fit_test(
+                comparison_input=comparison_input,
+                mc_is_normalized_to_data=not use_initial_values,
+            )  # type: DataMCComparisonOutputType
 
         for mc_channel in self._fit_model.mc_channels_to_plot:
             if project_to >= mc_channel.binning.dimensions:
@@ -519,7 +581,10 @@ class FitResultPlotter(FitPlotterBase):
                 ax2=ratio_ax,
                 ratio_type="vs_uncert",
                 include_sys=self._include_sys,
-                gof_check_method="pearson" if not use_initial_values else None,
+                data_mc_comparison=comparison_output if self.add_goodness_of_fit else None,
+                plot_outlier_indicators=self.add_outlier_indicators,
+                y_scale=1.7,
+                legend_loc="upper left",
             )
 
             if "luminosity" in self._optional_arguments_dict:
@@ -529,7 +594,9 @@ class FitResultPlotter(FitPlotterBase):
                     + r"\,\mathrm{fb}^{-1}$",
                     loc="right",
                 )
-            main_ax.set_title("Belle II Own Work", loc="left", fontdict={"size": 10, "style": "normal", "weight": "bold"})
+            main_ax.set_title(
+                "Belle II Preliminary", loc="left", fontdict={"size": 10, "style": "normal", "weight": "bold"}
+            )
 
             if isinstance(data_mc_comparison, DataMCComparisonOutput):
                 self.add_info_text(

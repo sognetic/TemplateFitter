@@ -44,6 +44,52 @@ __all__ = [
 plot_style.set_matplotlibrc_params()
 
 
+@dataclass()
+class DataMCComparisonInput:
+    expectation: np.ndarray
+    observation: np.ndarray
+    test_method: Optional[str]
+    sys_uncertainties_sq: Optional[np.ndarray] = None  # Without mc stats
+    mc_stat_uncertainty_sq: Optional[np.ndarray] = None
+    systematics_covariance_matrix: Optional[np.ndarray] = None  # Without mc stats
+    data_bin_mask: Optional[np.ndarray] = None
+
+    def __post_init__(self) -> None:
+        if self.test_method is not None and self.test_method not in self.valid_test_methods():
+            raise ValueError(
+                f"Argument test_method must be one of {self.valid_test_methods()} but is '{self.test_method}'!"
+            )
+
+        self.observation = np.array(self.observation)
+        self.expectation = np.array(self.expectation)
+
+        all_uncerts = [self.sys_uncertainties_sq, self.mc_stat_uncertainty_sq]
+        if all([s is None for s in all_uncerts]) and self.systematics_covariance_matrix is not None:
+            self.total_sys_cov_uncert_sq = np.diag(self.systematics_covariance_matrix)
+        else:
+            self.total_sys_cov_uncert_sq = np.sum([s for s in all_uncerts if s is not None], axis=0)
+
+        if self.systematics_covariance_matrix is not None and self.sys_uncertainties_sq is not None:
+            if not np.allclose(self.sys_uncertainties_sq, np.diag(self.systematics_covariance_matrix)):
+                raise ValueError("Covariance matrix and uncertainties given for the DataMCComparison don't match!")
+        elif self.systematics_covariance_matrix is None and self.sys_uncertainties_sq is not None:
+            self.systematics_covariance_matrix = np.diag(self.sys_uncertainties_sq)
+
+        if self.data_bin_mask is None:
+            self.data_bin_mask = np.ones_like(self.observation, dtype=bool)
+        else:
+            self.data_bin_mask = np.array(self.data_bin_mask).astype(bool)
+        if self.sys_uncertainties_sq is not None:
+            self.sys_uncertainties_sq = np.array(self.sys_uncertainties_sq)
+        if self.mc_stat_uncertainty_sq is not None:
+            self.stat_uncertainties_sq = np.array(self.mc_stat_uncertainty_sq)
+
+    @classmethod
+    def valid_test_methods(cls) -> Tuple[str, ...]:
+        valid_test_method_names = ("pearson", "cowan", "toys", "toys_inverted", "kafe2")  # type: Tuple[str, ...]
+        return valid_test_method_names
+
+
 @dataclass(frozen=True)
 class DataMCComparisonOutput:
     chi2: float
@@ -59,14 +105,13 @@ class DataMCComparisonOutput:
                 f"Argument test_method must be one of {self.valid_test_methods()} but is '{self.test_method}'!"
             )
 
-    @staticmethod
-    def valid_test_methods() -> Tuple[str, ...]:
-        valid_test_method_names = ("pearson", "cowan", "toys", "toys_inverted", "kafe2")  # type: Tuple[str, ...]
-        return valid_test_method_names
-
     @property
     def test_method_id(self) -> str:
         return self.test_method.capitalize()[0]
+
+    @staticmethod
+    def valid_test_methods():
+        return DataMCComparisonInput.valid_test_methods()
 
 
 DataMCComparisonOutputType = Optional[DataMCComparisonOutput]
@@ -175,9 +220,13 @@ class StackedHistogramPlot(HistogramPlot):
         ax: Optional[AxesType] = None,
         draw_legend: bool = True,
         legend_inside: bool = True,
-        y_axis_scale: float = 1.6,
-        y_label: str = "Events",
+        y_axis_scale: float = 1.0,
         with_uncertainties: bool = False,
+        gof_check_method: Optional[str] = None,
+        include_sys: bool = False,
+        y_label: str = "Events",
+        legend_cols: Optional[int] = None,
+        legend_loc: Optional[Union[int, str]] = None,
     ) -> AxesType:
 
         if ax is None:
@@ -224,7 +273,14 @@ class StackedHistogramPlot(HistogramPlot):
         ax.set_ylabel(self._get_y_label(normed=False, evts_or_cands=y_label), plot_style.ylabel_pos)
 
         if draw_legend:
-            self.draw_legend(axis=ax, inside=legend_inside, y_axis_scale=y_axis_scale)
+            self.draw_legend(
+                axis=ax,
+                inside=legend_inside,
+                loc=legend_loc,
+                ncols=legend_cols,
+                font_size=10,
+                y_axis_scale=y_axis_scale,
+            )
 
         return ax
 
@@ -272,31 +328,48 @@ class DataMCHistogramBase(HistogramPlot):
     ) -> DataMCComparisonOutputType:
         raise NotImplementedError(f"The 'plot_on' method is not implemented for the class {self.__class__.__name__}!")
 
+    @staticmethod
     def do_goodness_of_fit_test(
-        self,
-        method: Optional[str],
-        mc_bin_count: np.ndarray,
-        data_bin_count: np.ndarray,
-        total_mc_uncertainty_sq: np.ndarray,
-        stat_mc_uncertainty_sq: np.ndarray,
+        comparison_input: DataMCComparisonInput,
         mc_is_normalized_to_data: bool,
         mc_scale_factor: Optional[float] = None,
-        data_bin_mask: Optional[np.ndarray] = None,
     ) -> DataMCComparisonOutputType:
-        if method is None:
+
+        if comparison_input.test_method is None:
             return None
+        else:
+            method = comparison_input.test_method
 
         if mc_is_normalized_to_data and mc_scale_factor is None:
-            raise ValueError("If MC is normalized to data, please give a scale factor.")
+            mc_scale_factor = 1.0
 
-        dof = len(data_bin_count[data_bin_mask]) - 1 if mc_is_normalized_to_data else len(data_bin_count[data_bin_mask])
+        masked_data_bin_counts = comparison_input.observation[comparison_input.data_bin_mask]
+        masked_mc_bin_counts = comparison_input.expectation[comparison_input.data_bin_mask]
+
+        if comparison_input.total_sys_cov_uncert_sq is not None:
+            masked_total_mc_uncert_sq = comparison_input.total_sys_cov_uncert_sq[comparison_input.data_bin_mask]
+        else:
+            masked_total_mc_uncert_sq = None
+
+        if comparison_input.mc_stat_uncertainty_sq is not None:
+            masked_stat_mc_uncert_sq = comparison_input.mc_stat_uncertainty_sq[comparison_input.data_bin_mask]
+        else:
+            masked_stat_mc_uncert_sq = None
+
+        data_err_sq = np.where(
+            masked_data_bin_counts >= 1, masked_data_bin_counts, np.ones(masked_data_bin_counts.shape)
+        )  # type: np.ndarray
+
+        covmat = comparison_input.systematics_covariance_matrix
+
+        dof = len(masked_data_bin_counts) - 1 if mc_is_normalized_to_data else len(masked_data_bin_counts)
 
         if method.lower() == "pearson":
             chi2, ndf, p_val = pearson_chi2_test(
-                data=data_bin_count[data_bin_mask],
-                expectation=mc_bin_count[data_bin_mask],
+                data=masked_data_bin_counts,
+                expectation=masked_mc_bin_counts,
                 dof=dof,
-                error=np.sqrt(total_mc_uncertainty_sq[data_bin_mask] + mc_bin_count[data_bin_mask]),
+                error=np.sqrt(masked_total_mc_uncert_sq + data_err_sq),
             )
             return DataMCComparisonOutput(
                 chi2=chi2,
@@ -307,17 +380,15 @@ class DataMCHistogramBase(HistogramPlot):
                 mc_scale_factor=mc_scale_factor if mc_is_normalized_to_data else None,
             )
 
-        data_err_sq = np.where(data_bin_count >= 1, data_bin_count, np.ones(data_bin_count.shape))  # type: np.ndarray
-        covmat = self._histograms[self.mc_key].get_systematics_covariance_matrix()
         if method.lower() == "kafe2":
             chi2, ndf, p_val = kafe2_chi2_test(
-                data=data_bin_count[data_bin_mask],
-                expectation=mc_bin_count[data_bin_mask],
+                data=masked_data_bin_counts,
+                expectation=masked_mc_bin_counts,
                 dof=dof,
                 covariance_matrix=(
-                    covmat[np.ix_(data_bin_mask, data_bin_mask)]
-                    + np.diag(stat_mc_uncertainty_sq[data_bin_mask])
-                    + np.diag(data_err_sq[data_bin_mask])
+                    covmat[np.ix_(comparison_input.data_bin_mask, comparison_input.data_bin_mask)]
+                    + np.diag(masked_stat_mc_uncert_sq)
+                    + np.diag(data_err_sq)
                 ),
             )
             return DataMCComparisonOutput(
@@ -330,7 +401,7 @@ class DataMCHistogramBase(HistogramPlot):
             )
         elif method.lower() == "cowan":
             chi2, ndf, p_val = cowan_binned_likelihood_gof(
-                data=data_bin_count[data_bin_mask], expectation=mc_bin_count[data_bin_mask], dof=dof
+                data=masked_data_bin_counts, expectation=masked_mc_bin_counts, dof=dof
             )
             return DataMCComparisonOutput(
                 chi2=chi2,
@@ -342,10 +413,11 @@ class DataMCHistogramBase(HistogramPlot):
             )
         elif method.lower() == "toys":
             chi2, p_val, toy_output = toy_chi2_test(
-                data=data_bin_count[data_bin_mask],
-                expectation=mc_bin_count[data_bin_mask],
-                error=data_err_sq[data_bin_mask],
-                mc_cov=covmat[np.ix_(data_bin_mask, data_bin_mask)] + np.diag(data_err_sq[data_bin_mask]),
+                data=masked_data_bin_counts,
+                expectation=masked_mc_bin_counts,
+                error=data_err_sq,
+                mc_cov=covmat[np.ix_(comparison_input.data_bin_mask, comparison_input.data_bin_mask)]
+                + np.diag(data_err_sq),
                 use_text_book_approach=True,
             )
             return DataMCComparisonOutput(
@@ -358,12 +430,10 @@ class DataMCHistogramBase(HistogramPlot):
             )
         elif method.lower() == "toys_inverted":
             chi2, p_val, toy_output = toy_chi2_test(
-                data=data_bin_count[data_bin_mask],
-                expectation=mc_bin_count[data_bin_mask],
-                error=np.where(data_bin_count >= 1, data_bin_count, np.ones(data_bin_count.shape))[data_bin_mask],
-                mc_cov=self._histograms[self.mc_key].get_systematics_covariance_matrix()[
-                    np.ix_(data_bin_mask, data_bin_mask)
-                ],
+                data=masked_data_bin_counts,
+                expectation=masked_mc_bin_counts,
+                error=data_err_sq,
+                mc_cov=covmat[np.ix_(comparison_input.data_bin_mask, comparison_input.data_bin_mask)],
             )
             return DataMCComparisonOutput(
                 chi2=chi2,
@@ -803,31 +873,31 @@ class DataMCHistogramPlot(DataMCHistogramBase):
             label=self._histograms[self.data_key].labels[0],
         )
 
+        comparison_input = DataMCComparisonInput(
+            expectation=mc_bin_count,
+            observation=data_bin_count,
+            test_method=gof_check_method,
+            sys_uncertainties_sq=mc_uncert_sq - stat_mc_uncert_sq,
+            mc_stat_uncertainty_sq=stat_mc_uncert_sq,
+            data_bin_mask=data_bin_count != 0,
+        )
+
         try:
             comparison_output = self.do_goodness_of_fit_test(
-                method=gof_check_method,
-                mc_bin_count=mc_bin_count,
-                data_bin_count=data_bin_count,
-                total_mc_uncertainty_sq=mc_uncert_sq,
-                stat_mc_uncertainty_sq=stat_mc_uncert_sq,
+                comparison_input=comparison_input,
                 mc_is_normalized_to_data=normalize_to_data,
                 mc_scale_factor=norm_factor,
-                data_bin_mask=data_bin_count != 0.0,
             )  # type: DataMCComparisonOutputType
         except (IndexError, np.linalg.LinAlgError, ValueError) as e:
             logging.warning(
                 f"Could not run goodness of fit check with {gof_check_method} method "
                 f"for variable {self.variable.df_label}! Reverting to check with pearson method! \n (Error: {e}) "
             )
+            comparison_input.test_method = "pearson"
             comparison_output = self.do_goodness_of_fit_test(
-                method="pearson",
-                mc_bin_count=mc_bin_count,
-                data_bin_count=data_bin_count,
-                total_mc_uncertainty_sq=mc_uncert_sq,
+                comparison_input=comparison_input,
                 mc_is_normalized_to_data=normalize_to_data,
-                stat_mc_uncertainty_sq=stat_mc_uncert_sq,
                 mc_scale_factor=norm_factor,
-                data_bin_mask=data_bin_count != 0.0,
             )
 
         logging.info(comparison_output)
@@ -877,6 +947,7 @@ class DataMCHistogramPlot(DataMCHistogramBase):
             if extra_text:
                 extra_text += "\n"
             extra_text += fr"$\chi^2 / {comparison_output.ndf} = {comparison_output.chi2 / comparison_output.ndf:.2f}$"
+            extra_text += f"\n pval = {comparison_output.p_val:.3f}"
 
         if extra_text:
             self.draw_info_text(axis=ax1, fig=ax1.get_figure(), this_additional_info_str=extra_text)

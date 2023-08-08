@@ -88,11 +88,13 @@ class HistogramPlot(ABC):
         bin_counts: np.ndarray,
         original_binning: Binning,
         bin_errors_squared: np.ndarray = None,
+        bin_correlation_matrix: np.ndarray = None,
         data_column_names: DataColumnNamesInput = None,
         hist_type: Optional[str] = None,
         color: Optional[str] = None,
         alpha: float = 1.0,
     ) -> None:
+
         if histogram_key not in self._histograms.histogram_keys:
             new_histogram = Histogram(variable=self.variable, hist_type=hist_type, special_binning=original_binning)
             self._histograms.add_histogram(key=histogram_key, histogram=new_histogram)
@@ -109,11 +111,19 @@ class HistogramPlot(ABC):
                     f"Should be None, str or List[str], but is {type(data_column_names)}!"
                 )
 
+        if bin_correlation_matrix is not None:
+            if bin_correlation_matrix.shape != (len(bin_counts), len(bin_counts)):
+                raise ValueError(
+                    f"Given bin correlation matrix shape ({bin_correlation_matrix.shape}) doesn't match "
+                    f"number of bin counts ({len(bin_counts)})."
+                )
+
         self._histograms[histogram_key].add_histogram_component(
             label=label,
             bin_counts=bin_counts,
             original_binning=original_binning,
             bin_errors_squared=bin_errors_squared,
+            bin_correlation_matrix=bin_correlation_matrix,
             data_column_names=self.variable.df_label,
             color=color,
             alpha=alpha,
@@ -235,7 +245,11 @@ class HistogramPlot(ABC):
         component_uncert_sq = copy.deepcopy(component_stat_uncert_sq)
 
         if include_sys:
-            sys_uncertainty_squared = self._histograms[component_key].get_systematic_uncertainty_per_bin()
+            try:
+                sys_uncertainty_squared = self._histograms[component_key].get_systematic_uncertainty_per_bin()
+            except NotImplementedError:
+                logging.warning(f"Cannot get systematic uncertainty for component {component_key}, skipping")
+                sys_uncertainty_squared = None
             if sys_uncertainty_squared is not None:
                 component_uncert_sq += sys_uncertainty_squared
 

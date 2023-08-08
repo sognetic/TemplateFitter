@@ -9,7 +9,6 @@ import pandas as pd
 from typing import Union, Optional, Tuple, List, Sequence, Dict
 
 from templatefitter.binned_distributions.binning import Binning, BinEdgesType
-from templatefitter.binned_distributions.systematics import SystematicsInfoItem
 from templatefitter.binned_distributions.binned_distribution import BinnedDistribution, DataColumnNamesInput
 
 logging.getLogger(__name__).addHandler(logging.NullHandler())
@@ -30,46 +29,24 @@ def get_combined_covariance(distributions: DistributionContainerInputType) -> np
     _check_distribution_container_input(distributions=distributions)
     common_binning = distributions[0].binning
 
-    assert all(len(dist.systematics) == len(distributions[0].systematics) for dist in distributions), [
-        len(d.systematics) for d in distributions
-    ]
-
-    if all(len(dist.systematics) == 0 for dist in distributions):
-        return np.zeros((common_binning.num_bins_total, common_binning.num_bins_total))
+    assert all((dist.binning == common_binning for dist in distributions)), (dist.binning for dist in distributions)
 
     cov = np.zeros((common_binning.num_bins_total, common_binning.num_bins_total))
-
-    if len(distributions) == 1:
-        for sys_info in distributions[0].systematics:
-            cov += sys_info.get_covariance_matrix(
-                data=distributions[0].base_data.data,
-                weights=distributions[0].base_data.weights,
-                binning=common_binning,
-            )
+    if all(len(dist.systematics) == 0 for dist in distributions):
         return cov
-    else:
-        for sys_index in range(len(distributions[0].systematics)):
-            __first_relevant_sys_info = distributions[0].systematics[sys_index]
-            assert __first_relevant_sys_info is not None
-            assert all(isinstance(dist.systematics[sys_index], type(__first_relevant_sys_info)) for dist in distributions)
+    for dist in distributions:
+        try:
+            cov += dist.bin_covariance_matrix
 
-            varied_hists = None
-            for dist in distributions:
-                __systematics_info = dist.systematics[sys_index]
-                if __systematics_info is None:
-                    raise ValueError(f"Expected SystematicsInfoItem for systematic {sys_index}, but got None instead.")
-                _systematics_info = __systematics_info  # type: SystematicsInfoItem
-
-                varied_hists = _systematics_info.get_varied_hist(
-                    initial_varied_hists=varied_hists,
+        except ValueError:
+            for _systematics_info in dist.systematics:
+                cov += _systematics_info.get_covariance_matrix(
+                    binning=common_binning,
                     data=dist.base_data.data,
                     weights=dist.base_data.weights,
-                    binning=common_binning,
                 )
 
-            cov += __first_relevant_sys_info.get_cov_from_varied_hists(varied_hists=varied_hists)
-
-        return cov
+    return cov
 
 
 def _check_distribution_container_input(distributions: DistributionContainerInputType) -> None:

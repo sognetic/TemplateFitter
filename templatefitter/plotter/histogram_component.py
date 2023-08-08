@@ -393,6 +393,7 @@ class HistComponentFromHistogram(HistComponent):
         bin_counts: DataInputType,
         original_binning: Binning,
         bin_errors_squared: Optional[np.ndarray] = None,
+        bin_correlation_matrix: Optional[np.ndarray] = None,
         data_column_names: DataColumnNamesInput = None,
         color: Optional[str] = None,
         alpha: float = 1.0,
@@ -432,6 +433,7 @@ class HistComponentFromHistogram(HistComponent):
             log_scale_mask=self._original_binning.log_scale_mask,
             data=self._input_bin_counts,
             bin_errors_squared=self._input_bin_errors_squared,
+            bin_correlation_matrix=bin_correlation_matrix,
         )
 
     def get_histogram_bin_count(

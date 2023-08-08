@@ -515,4 +515,4 @@ class FitPlotterBase(ABC):
                     f"but object of type {type(additional_info_str).__name__} was provided."
                 )
 
-        draw_info_text(axis=axis, fig=fig, this_additional_info_str=this_additional_info_str, key=key)
+            draw_info_text(axis=axis, fig=fig, this_additional_info_str=this_additional_info_str)
