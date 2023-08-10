@@ -144,6 +144,8 @@ def run_basic_example() -> Tuple[MinimizeResult, Dict[str, float]]:
     # Lastly we'll finalize the model. This finalized model could now be saved with Python's pickle serializer.
     model.finalize_model()
 
+    model.add_toy_data_from_templates()
+
     # Now that we're done creating the model, we can see how data and MC agreed before the fit.
     # Agreement should be perfect in a fit to Asimov data.
     # To do this, we first have to set up a FitResultPlotter.
@@ -186,7 +188,7 @@ def run_basic_example() -> Tuple[MinimizeResult, Dict[str, float]]:
     # Note: You might get a warning from numpy which you can safely ignore here.
     significance_dict = {}
     for yield_parameter in param_handler.get_parameter_names_for_type(ParameterHandler.yield_parameter_type):
-        significance_dict[yield_parameter] = fitter.get_significance(
+        significance_dict[yield_parameter], _ = fitter.get_significance(
             yield_parameter=yield_parameter,
             fix_nui_params=False,
             verbose=False,
