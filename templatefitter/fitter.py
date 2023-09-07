@@ -124,7 +124,7 @@ class TemplateFitter:
 
         initial_values = self._nll.x0
 
-        initial_values[0] *= 0.95
+        initial_values[0] *= 0.75
         if set_parameters_to_values is not None:
             for param_id, param_val in set_parameters_to_values.items():
                 param_index = self.minimizer.params.param_id_to_index(param_id=param_id)
